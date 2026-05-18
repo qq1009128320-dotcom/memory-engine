@@ -1,0 +1,178 @@
+"""
+可观测性 + 性能工具 — trace_id、指标、LLM 重试、嵌入缓存
+"""
+
+import time
+import uuid
+import hashlib
+import threading
+import functools
+from typing import Any, Callable
+from datetime import datetime, timezone
+
+
+# ---------------------------------------------------------------------------
+# Trace ID
+# ---------------------------------------------------------------------------
+_trace_local = threading.local()
+
+
+def get_trace_id() -> str:
+    """获取或生成当前调用的 trace_id。"""
+    if not hasattr(_trace_local, "trace_id"):
+        _trace_local.trace_id = str(uuid.uuid4())[:8]
+    return _trace_local.trace_id
+
+
+def new_trace() -> str:
+    """为新请求生成新的 trace_id。"""
+    _trace_local.trace_id = str(uuid.uuid4())[:8]
+    return _trace_local.trace_id
+
+
+# ---------------------------------------------------------------------------
+# 性能指标（进程内计数）
+# ---------------------------------------------------------------------------
+class Metrics:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.request_count = 0
+        self.error_count = 0
+        self.total_latency_ms = 0.0
+        self.llm_call_count = 0
+        self.llm_error_count = 0
+
+    def record_request(self, latency_ms: float):
+        with self._lock:
+            self.request_count += 1
+            self.total_latency_ms += latency_ms
+
+    def record_error(self):
+        with self._lock:
+            self.error_count += 1
+
+    def record_llm_call(self):
+        with self._lock:
+            self.llm_call_count += 1
+
+    def record_llm_error(self):
+        with self._lock:
+            self.llm_error_count += 1
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            avg_latency = (self.total_latency_ms / self.request_count) if self.request_count > 0 else 0
+            return {
+                "requests": self.request_count,
+                "errors": self.error_count,
+                "avg_latency_ms": round(avg_latency, 2),
+                "llm_calls": self.llm_call_count,
+                "llm_errors": self.llm_error_count,
+                "error_rate": round(self.error_count / max(self.request_count, 1), 4),
+            }
+
+
+metrics = Metrics()
+
+
+# ---------------------------------------------------------------------------
+# 嵌入缓存 — LRU 字典
+# ---------------------------------------------------------------------------
+class EmbeddingCache:
+    def __init__(self, max_size: int = 1000):
+        self._cache: dict[str, list[float]] = {}
+        self._max_size = max_size
+
+    def _key(self, text: str) -> str:
+        return hashlib.sha256(text.encode()).hexdigest()
+
+    def get(self, text: str) -> list[float] | None:
+        return self._cache.get(self._key(text))
+
+    def put(self, text: str, embedding: list[float]):
+        if len(self._cache) >= self._max_size:
+            # 简单策略：清一半
+            keys = list(self._cache.keys())[: self._max_size // 2]
+            for k in keys:
+                del self._cache[k]
+        self._cache[self._key(text)] = embedding
+
+    def size(self) -> int:
+        return len(self._cache)
+
+
+embedding_cache = EmbeddingCache()
+
+
+# ---------------------------------------------------------------------------
+# LLM 重试装饰器
+# ---------------------------------------------------------------------------
+def with_retry(max_retries: int = 3, base_delay: float = 1.0):
+    """LLM 调用自动重试，指数退避。"""
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exc = None
+            for attempt in range(max_retries):
+                try:
+                    metrics.record_llm_call()
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exc = e
+                    metrics.record_llm_error()
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2**attempt)
+                        import logging
+                        logging.getLogger("memory_engine").warning(
+                            "LLM call failed (attempt %d/%d), retrying in %.1fs: %s",
+                            attempt + 1, max_retries, delay, e,
+                        )
+                        time.sleep(delay)
+            raise last_exc
+        return wrapper
+    return decorator
+
+
+# ---------------------------------------------------------------------------
+# 工具调用计时装饰器
+# ---------------------------------------------------------------------------
+def track_mcp_tool(func: Callable) -> Callable:
+    """记录 MCP 工具调用的延迟和错误。"""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        new_trace()
+        t0 = time.monotonic()
+        try:
+            result = func(*args, **kwargs)
+            metrics.record_request((time.monotonic() - t0) * 1000)
+            return result
+        except Exception:
+            metrics.record_error()
+            raise
+    return wrapper
+
+
+# ---------------------------------------------------------------------------
+# 健康检查
+# ---------------------------------------------------------------------------
+def health_check() -> dict:
+    """返回服务健康状态。"""
+    import sqlite3
+    from config import DB_PATH
+
+    status = {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "trace_id": get_trace_id(),
+    }
+
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.execute("SELECT 1")
+        conn.close()
+        status["database"] = "ok"
+    except Exception as e:
+        status["database"] = f"error: {e}"
+        status["status"] = "degraded"
+
+    return status

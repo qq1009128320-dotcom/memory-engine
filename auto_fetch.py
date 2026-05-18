@@ -5,19 +5,10 @@ Auto-Fetch — 飞书/本地数据定时同步到 Memory Tree
 使用方式：
 1. 手动：python3 auto_fetch.py
 2. Hermes cronjob 定时触发：每 20 分钟执行
-
-依赖：
-- 飞书 CLI（lark-cli）用于飞书数据同步
-- memory_server.py 的 MCP 工具（通过 HTTP 或直接导入）
-
-环境变量：
-- ENTERPRISE_MEMORY_DB: 数据库路径
-- FEISHU_ENABLED: 是否启用飞书同步（1/0，默认 1）
 """
 
 import hashlib
 import json
-import os
 import sqlite3
 import subprocess
 import sys
@@ -26,9 +17,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# 项目根目录
+# 统一配置
 ROOT = Path(__file__).parent
-DB_PATH = os.getenv("ENTERPRISE_MEMORY_DB", str(ROOT / "memory.db"))
+sys.path.insert(0, str(ROOT))
+from config import DB_PATH, FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENABLED
 
 
 def _now() -> str:
@@ -44,7 +36,7 @@ def _sha256(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
 

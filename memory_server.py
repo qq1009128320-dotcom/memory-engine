@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import sqlite3
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import chromadb
@@ -22,21 +22,29 @@ from chromadb.utils import embedding_functions
 
 from fastmcp import FastMCP
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+# 参数校验
+from validators import (
+    validate_not_empty, validate_enum, validate_int_range,
+    ALLOWED_CATEGORIES, ALLOWED_SEVERITIES, ALLOWED_ERROR_CATEGORIES,
+    ALLOWED_ENTITY_TYPES, ALLOWED_SCOPES, ALLOWED_SOURCE_TYPES, ALLOWED_RELATIONS,
+)
 
-DB_PATH = os.getenv("ENTERPRISE_MEMORY_DB", os.path.join(os.path.dirname(__file__), "memory.db"))
-MAX_ROWS = int(os.getenv("MEMORY_MAX_ROWS", "100"))
-CHROMADB_PATH = os.getenv("CHROMADB_PATH", os.path.join(os.path.dirname(__file__), "chromadb"))
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
-CHROMADB_COLLECTION = os.getenv("CHROMADB_COLLECTION", "memory_tree")
+# ---------------------------------------------------------------------------
+# 统一配置（从 config.py 读取，可被 .env 覆盖）
+# ---------------------------------------------------------------------------
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
+from config import (
+    DB_PATH, CHROMADB_PATH, CHROMADB_COLLECTION,
+    EMBEDDING_MODEL, MAX_MEMORY_ROWS as MAX_ROWS,
+    MCP_SERVER_NAME,
+)
 
 _chroma_client: chromadb.PersistentClient | None = None
 _embedding_fn: embedding_functions.EmbeddingFunction | None = None
 _chroma_collection: chromadb.Collection | None = None
 
-mcp = FastMCP("Memory Engine")
+mcp = FastMCP(MCP_SERVER_NAME)
 
 # ---------------------------------------------------------------------------
 # Database helpers
@@ -44,7 +52,7 @@ mcp = FastMCP("Memory Engine")
 
 def _get_conn() -> sqlite3.Connection:
     """Get a read-write connection with WAL mode for concurrent access."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -79,9 +87,9 @@ def _get_chroma_collection() -> chromadb.Collection:
     """Lazy-load ChromaDB client and collection."""
     global _chroma_client, _chroma_collection
     if _chroma_collection is None:
-        os.makedirs(CHROMADB_PATH, exist_ok=True)
+        os.makedirs(str(CHROMADB_PATH), exist_ok=True)
         _chroma_client = chromadb.PersistentClient(
-            path=CHROMADB_PATH,
+            path=str(CHROMADB_PATH),
             settings=chromadb.Settings(anonymized_telemetry=False),
         )
         ef = _get_embedding_fn()
@@ -190,8 +198,9 @@ def memory_tree_ingest(
                     "id": chunk_id,
                 }],
             )
-        except Exception:
-            pass  # 向量索引失败不影响主流程
+        except Exception as e:
+            import logging
+            logging.getLogger("memory_engine").warning("ChromaDB indexing skipped: %s", e)
 
     return {
         "status": "ingested",
@@ -451,8 +460,12 @@ def preference_add(
     调用时机：
     - 用户纠正了 Agent 的错误
     - 用户明确告诉 Agent 「记住...」
-    - extract_facts.py 自动从对话中提取
     """
+    validate_not_empty(condition, "condition")
+    validate_not_empty(rule, "rule")
+    validate_enum(category, "category", ALLOWED_CATEGORIES)
+    validate_enum(source_type, "source_type", ALLOWED_SOURCE_TYPES)
+
     rule_hash = _sha256(f"{condition}|{rule}")
     pref_id = str(uuid.uuid4())
 
@@ -647,18 +660,16 @@ def error_log(
     - 用户纠正 Agent 的任何错误后
     - extract_facts.py 自动检测到纠正行为后
     """
+    validate_not_empty(task_type, "task_type")
+    validate_not_empty(mistake_description, "mistake_description")
+    validate_not_empty(correction, "correction")
+    validate_enum(error_category, "error_category", ALLOWED_ERROR_CATEGORIES)
+    validate_enum(severity, "severity", ALLOWED_SEVERITIES)
+
     error_id = str(uuid.uuid4())
 
-    # 检查是否已有类似错误
-    similar_hash = _sha256(f"{task_type}|{error_category}|{mistake_description}")
-
+    # 查找相似错误
     with _get_conn() as conn:
-        existing = conn.execute(
-            "SELECT id, occurrence_count FROM error_memory WHERE is_resolved = 0 AND id = ?",
-            (similar_hash,),
-        ).fetchone() if False else None  # Always create new for now
-
-        # 实际查找相似错误
         existing = conn.execute(
             """SELECT id, occurrence_count FROM error_memory
                WHERE is_resolved = 0 AND task_type = ? AND error_category = ?
@@ -765,6 +776,10 @@ def entity_add(
     - 从飞书文档中自动提取实体时
     - extract_facts.py 检测到新的实体关系时
     """
+    validate_not_empty(name, "name")
+    validate_enum(type, "type", ALLOWED_ENTITY_TYPES)
+    validate_enum(scope, "scope", ALLOWED_SCOPES)
+
     entity_id = str(uuid.uuid4())
 
     with _get_conn() as conn:
@@ -856,6 +871,10 @@ def entity_link(
     - 从对话中提取实体关系后
     - extract_facts.py 检测到新关系时
     """
+    validate_not_empty(source_name, "source_name")
+    validate_not_empty(target_name, "target_name")
+    validate_enum(relation, "relation", ALLOWED_RELATIONS)
+
     with _get_conn() as conn:
         # 查找或创建 source 实体
         src = conn.execute(
@@ -1041,11 +1060,26 @@ def memory_stats() -> dict:
         collection = _get_chroma_collection()
         stats["chromadb_indexed"] = collection.count()
         stats["embedding_model"] = EMBEDDING_MODEL
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger("memory_engine").warning("ChromaDB stats unavailable: %s", e)
         stats["chromadb_indexed"] = "未初始化"
         stats["embedding_model"] = EMBEDDING_MODEL
 
     return stats
+
+
+@mcp.tool
+def memory_health() -> dict:
+    """
+    健康检查 + 运行指标。
+
+    返回数据库连接状态、ChromaDB 状态、请求量/延迟/错误率等。
+    """
+    from observability import health_check, metrics
+    result = health_check()
+    result["metrics"] = metrics.snapshot()
+    return result
 
 
 # ---------------------------------------------------------------------------

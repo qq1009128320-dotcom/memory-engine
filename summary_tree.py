@@ -5,32 +5,17 @@
 使用方式:
   python3 summary_tree.py              # 生成全部层级摘要
   python3 summary_tree.py --rebuild    # 重建所有摘要
-
-依赖:
-  - DEEPSEEK_API_KEY (从 ~/.hermes/.env 自动加载)
-  - memory.db (已有的 memory_tree_chunks 数据)
 """
 
 import json
-import os
 import sqlite3
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).parent
-DB_PATH = os.getenv("ENTERPRISE_MEMORY_DB", str(ROOT / "memory.db"))
-
-# 加载 .env
-env_path = os.path.expanduser("~/.hermes/.env")
-if os.path.exists(env_path):
-    with open(env_path) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, val = line.split("=", 1)
-                if key not in os.environ:
-                    os.environ[key] = val
+sys.path.insert(0, str(ROOT))
+from config import DB_PATH, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT
 
 
 def _now() -> str:
@@ -38,7 +23,7 @@ def _now() -> str:
 
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -71,21 +56,18 @@ SUMMARIZE_L0_PROMPT = """你是一个企业知识系统。以下是多个主题�
 
 
 def call_llm(prompt: str, max_tokens: int = 1024) -> str:
-    api_key = os.environ.get("DEEPSEEK_API_KEY", "")
-    base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-
-    if not api_key:
+    if not LLM_API_KEY:
         raise RuntimeError("DEEPSEEK_API_KEY 未设置")
 
     import httpx
     response = httpx.post(
-        f"{base_url}/v1/chat/completions",
+        f"{LLM_BASE_URL}/v1/chat/completions",
         headers={
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {LLM_API_KEY}",
             "Content-Type": "application/json",
         },
         json={
-            "model": "deepseek-chat",
+            "model": LLM_MODEL,
             "messages": [
                 {"role": "system", "content": "你是一个精确的知识摘要器。只输出摘要文本。"},
                 {"role": "user", "content": prompt},
@@ -93,7 +75,7 @@ def call_llm(prompt: str, max_tokens: int = 1024) -> str:
             "temperature": 0.3,
             "max_tokens": max_tokens,
         },
-        timeout=60,
+        timeout=LLM_TIMEOUT,
     )
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"].strip()

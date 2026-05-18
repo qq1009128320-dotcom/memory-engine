@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  memory-engine:
+    build: .
+    container_name: memory-engine
+    ports:
+      - "8000:8000"
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - MEMORY_DB_PATH=/data/memory.db
+      - CHROMADB_PATH=/data/chromadb
+      - LLM_MODEL=deepseek-chat
+      - LOG_LEVEL=INFO
+    volumes:
+      - memory_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "from memory_server import memory_stats; memory_stats()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  memory_data:

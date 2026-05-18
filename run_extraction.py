@@ -18,28 +18,19 @@
 """
 
 import json
-import os
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
-# 自动加载 .env
-env_path = os.path.expanduser("~/.hermes/.env")
-if os.path.exists(env_path):
-    with open(env_path) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, val = line.split("=", 1)
-                if key not in os.environ:
-                    os.environ[key] = val
+# 统一配置（从 config.py 加载，自动读取 .env）
+ROOT = Path(__file__).parent
+sys.path.insert(0, str(ROOT))
+from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_MAX_TOKENS, LLM_TIMEOUT
 
 # ---------------------------------------------------------------------------
 # 导入 MCP 工具（直接调用 memory_server 的函数，不走 MCP 协议）
 # ---------------------------------------------------------------------------
-ROOT = Path(__file__).parent
-sys.path.insert(0, str(ROOT))
 
 from memory_server import (
     preference_add,
@@ -135,32 +126,29 @@ EXTRACTION_PROMPT = """你是一个记忆引擎的事实提取器。
 # LLM 调用
 # ---------------------------------------------------------------------------
 
-def call_llm(prompt: str) -> str:
+def call_llm(prompt: str, max_tokens: int = None) -> str:
     """使用 DeepSeek API 调用 LLM。"""
-    api_key = os.environ.get("DEEPSEEK_API_KEY", "")
-    base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-
-    if not api_key:
-        raise RuntimeError("DEEPSEEK_API_KEY 未设置，请检查 ~/.hermes/.env")
+    if not LLM_API_KEY:
+        raise RuntimeError("DEEPSEEK_API_KEY 未设置，请检查 .env 文件")
 
     import httpx
 
     response = httpx.post(
-        f"{base_url}/v1/chat/completions",
+        f"{LLM_BASE_URL}/v1/chat/completions",
         headers={
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {LLM_API_KEY}",
             "Content-Type": "application/json",
         },
         json={
-            "model": "deepseek-chat",
+            "model": LLM_MODEL,
             "messages": [
                 {"role": "system", "content": "你是一个精确的事实提取器。只输出 JSON，不输出其他内容。"},
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.1,
-            "max_tokens": 2048,
+            "max_tokens": max_tokens or LLM_MAX_TOKENS,
         },
-        timeout=60,
+        timeout=LLM_TIMEOUT,
     )
     response.raise_for_status()
     data = response.json()

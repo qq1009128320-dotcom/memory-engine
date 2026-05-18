@@ -1,0 +1,47 @@
+"""
+MCP 工具参数校验
+"""
+
+from typing import Any
+
+
+class ValidationError(ValueError):
+    pass
+
+
+def validate_not_empty(value: str, name: str) -> str:
+    """确保字符串不为空。"""
+    if not value or not value.strip():
+        raise ValidationError(f"{name} 不能为空")
+    return value.strip()
+
+
+def validate_length(value: str, name: str, max_len: int = 50000) -> str:
+    """限制字符串长度。"""
+    if len(value) > max_len:
+        raise ValidationError(f"{name} 超过最大长度 {max_len} (当前 {len(value)})")
+    return value
+
+
+def validate_enum(value: str, name: str, allowed: list[str]) -> str:
+    """确保值在允许范围内。"""
+    if value not in allowed:
+        raise ValidationError(f"{name} 必须在 {allowed} 中，收到: {value}")
+    return value
+
+
+def validate_int_range(value: int, name: str, min_val: int = 1, max_val: int = 100) -> int:
+    """限制整数范围。"""
+    if value < min_val or value > max_val:
+        raise ValidationError(f"{name} 必须在 {min_val}-{max_val} 之间，收到: {value}")
+    return value
+
+
+# 预定义允许值
+ALLOWED_CATEGORIES = ["field_alias", "date_rule", "naming", "policy", "format"]
+ALLOWED_SEVERITIES = ["minor", "major", "critical"]
+ALLOWED_ERROR_CATEGORIES = ["field_selection", "logic_error", "scope_error", "omission"]
+ALLOWED_ENTITY_TYPES = ["person", "department", "client", "policy", "document", "field", "project"]
+ALLOWED_SCOPES = ["personal", "team", "organization"]
+ALLOWED_RELATIONS = ["belongs_to", "manages", "alias_of", "depends_on", "owns", "approves", "works_in"]
+ALLOWED_SOURCE_TYPES = ["manual", "extracted", "corrected"]
