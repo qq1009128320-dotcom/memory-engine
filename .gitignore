@@ -25,5 +25,11 @@ chromadb/
 .DS_Store
 Thumbs.db
 
+# Environment
+.env
+
+# Database (runtime data, not source)
+memory.db
+
 # Deployment
 sync_all.sh

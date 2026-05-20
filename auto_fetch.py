@@ -9,6 +9,7 @@ Auto-Fetch — 飞书/本地数据定时同步到 Memory Tree
 
 import hashlib
 import json
+import os
 import sqlite3
 import subprocess
 import sys

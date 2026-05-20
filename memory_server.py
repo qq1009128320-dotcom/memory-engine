@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -83,9 +84,11 @@ def _get_embedding_fn() -> embedding_functions.EmbeddingFunction:
     return _embedding_fn
 
 
-def _get_chroma_collection() -> chromadb.Collection:
+def _get_chroma_collection(force_refresh: bool = False) -> chromadb.Collection:
     """Lazy-load ChromaDB client and collection."""
     global _chroma_client, _chroma_collection
+    if force_refresh:
+        _chroma_collection = None
     if _chroma_collection is None:
         os.makedirs(str(CHROMADB_PATH), exist_ok=True)
         _chroma_client = chromadb.PersistentClient(
@@ -346,7 +349,7 @@ def memory_tree_reindex() -> dict:
     - 向量索引损坏时
     """
     try:
-        collection = _get_chroma_collection()
+        collection = _get_chroma_collection(force_refresh=True)
         # 清空现有向量索引
         existing = collection.get()
         if existing["ids"]:
@@ -1022,7 +1025,7 @@ def memory_stats() -> dict:
     - 用户问「Agent 记住了多少东西」
     """
     with _get_conn() as conn:
-        return {
+        stats = {
             "memory_tree_chunks": conn.execute(
                 "SELECT COUNT(*) as n FROM memory_tree_chunks"
             ).fetchone()["n"],
@@ -1052,10 +1055,9 @@ def memory_stats() -> dict:
                 "SELECT error_category, COUNT(*) as count FROM error_memory "
                 "WHERE is_resolved = 0 GROUP BY error_category ORDER BY count DESC LIMIT 5"
             ).fetchall()),
-            "chromadb_indexed": 0,
         }
 
-    # 附加 ChromaDB 统计
+    # 附加 ChromaDB 统计（需要在 with 块外面，因为 _get_chroma_collection 会打开自己的连接）
     try:
         collection = _get_chroma_collection()
         stats["chromadb_indexed"] = collection.count()
