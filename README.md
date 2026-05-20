@@ -21,23 +21,59 @@
 | L3 | 纠错记忆 | 记住错误，≥3次自动升级为永久规则 | 独创 |
 | L4 | 知识图谱 | 实体关系 + 三级权限共享 | Zep |
 
+## 环境要求
+
+- **Python >= 3.10**（FastMCP 3.x 需要）
+- 操作系统：Linux / macOS / WSL2
+- 磁盘空间：约 200MB（含 ONNX 嵌入模型 80MB）
+
 ## 快速开始
 
 ```bash
 # 1. 安装依赖
 python3 -m venv venv && source venv/bin/activate
-pip install chromadb fastmcp httpx
+pip install -r requirements.txt
 
-# 2. 下载 ONNX 嵌入模型（80MB）
-mkdir -p ~/.cache/chroma/onnx_models/all-MiniLM-L6-v2/
-# 从浏览器下载: https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz
-# 放到上面创建的目录
+# 2. ONNX 嵌入模型（首次运行自动下载，80MB）
+# ChromaDB 的 DefaultEmbeddingFunction 会在首次使用时自动从 HuggingFace
+# 下载 all-MiniLM-L6-v2 ONNX 模型到 ~/.cache/chroma/onnx_models/
+# 如果网络受限，也可以手动下载到上述目录：
+# curl -L https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz | tar xz
+# 然后将解压内容放入 ~/.cache/chroma/onnx_models/all-MiniLM-L6-v2/
 
 # 3. 初始化数据库
 python3 -c "from memory_server import _init_db; _init_db()"
 
-# 4. 启动 MCP Server
+# 4. 启动 MCP Server（验证安装是否成功）
 python3 memory_server.py
+# 看到 "FastMCP server" 或类似输出即为成功，Ctrl+C 退出
+```
+
+## 环境变量
+
+项目通过 `.env` 文件（放在项目根目录）或直接设置环境变量来配置：
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `DEEPSEEK_API_KEY` | DeepSeek API 密钥（事实提取和摘要生成需要） | 空（不设置则 LLM 功能不可用） |
+| `DEEPSEEK_BASE_URL` | DeepSeek API 地址 | `https://api.deepseek.com` |
+| `LLM_MODEL` | 使用的 LLM 模型 | `deepseek-chat` |
+| `LLM_MAX_TOKENS` | LLM 最大输出 token | `2048` |
+| `LLM_TIMEOUT` | LLM 请求超时（秒） | `60` |
+| `ENTERPRISE_MEMORY_DB` / `MEMORY_DB_PATH` | SQLite 数据库路径 | `./memory.db` |
+| `CHROMADB_PATH` | ChromaDB 向量存储路径 | `./chromadb` |
+| `CHROMADB_COLLECTION` | ChromaDB 集合名称 | `memory_tree` |
+| `EMBEDDING_MODEL` | 嵌入模型名称 | `all-MiniLM-L6-v2` |
+| `MAX_MEMORY_ROWS` | 查询结果最大行数 | `100` |
+| `MCP_SERVER_NAME` | MCP Server 名称 | `Memory Engine` |
+| `FEISHU_APP_ID` | 飞书应用 ID（飞书集成用） | 空 |
+| `FEISHU_APP_SECRET` | 飞书应用密钥 | 空 |
+
+创建 `.env` 文件示例：
+
+```bash
+echo 'DEEPSEEK_API_KEY=sk-your-key-here' > .env
+echo 'MEMORY_DB_PATH=./my_memory.db' >> .env
 ```
 
 ## MCP 工具列表
@@ -128,3 +164,43 @@ mcp_servers:
 - **向量检索**: ChromaDB + ONNX (all-MiniLM-L6-v2, 384维)
 - **LLM**: DeepSeek (事实提取 + 摘要生成)
 - **数据源**: 飞书 CLI / 本地文件 / 数据库
+
+## 验证安装
+
+安装完成后，运行以下 smoke test 确认一切正常：
+
+```bash
+# 确保虚拟环境已激活
+source venv/bin/activate
+
+# Smoke test：完整的端到端验证
+python3 -c "
+import os
+os.environ['DEEPSEEK_API_KEY'] = 'test-key'  # 跳过 LLM 调用
+
+from memory_server import _init_db, memory_stats, memory_tree_ingest, memory_health
+
+# 1. 初始化数据库
+_init_db()
+print('✅ 数据库初始化成功')
+
+# 2. 检查统计信息
+stats = memory_stats()
+print(f'✅ 记忆库统计: {stats}')
+
+# 3. 测试录入
+result = memory_tree_ingest(
+    source='smoke_test',
+    title='安装验证',
+    content='这是一条验证记忆引擎安装是否正常的测试内容。',
+)
+print(f'✅ 录入测试: {result[\"status\"]}')
+
+# 4. 健康检查
+health = memory_health()
+print(f'✅ 健康检查: {health[\"status\"]}')
+
+print()
+print('🎉 记忆引擎安装验证全部通过！')
+"
+```
