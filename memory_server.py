@@ -14,6 +14,7 @@ import json
 import os
 import sqlite3
 import atexit
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -81,13 +82,25 @@ mcp = FastMCP(MCP_SERVER_NAME)
 # Database helpers
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# SQLite 连接池（线程本地 + 性能优化）
+# ---------------------------------------------------------------------------
+_conn_local = threading.local()
+
 def _get_conn() -> sqlite3.Connection:
-    """Get a read-write connection with WAL mode for concurrent access."""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    """获取线程本地的 SQLite 连接（复用，避免每次新建）。"""
+    if not hasattr(_conn_local, "conn") or _conn_local.conn is None:
+        conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=-8000")
+        conn.execute("PRAGMA temp_store=MEMORY")
+        conn.execute("PRAGMA mmap_size=268435456")
+        conn.execute("PRAGMA busy_timeout=5000")
+        _conn_local.conn = conn
+    return _conn_local.conn
 
 
 def _init_db() -> None:
@@ -785,6 +798,22 @@ def error_list(task_type: str = "", is_resolved: int = 0) -> list[dict]:
     return _rows_to_list(rows)
 
 
+@mcp.tool
+def error_delete(id: str) -> dict:
+    """
+    删除一条错误记录。
+    用于清理测试数据或已不再需要跟踪的错误。
+
+    调用时机：
+    - 清理测试错误
+    - 错误已在代码层面修复，无需继续跟踪
+    """
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM error_memory WHERE id = ?", (id,))
+        conn.commit()
+    return {"status": "deleted", "id": id}
+
+
 # ---------------------------------------------------------------------------
 # Layer 4: Knowledge Graph — 知识图谱层
 # ---------------------------------------------------------------------------
@@ -1115,7 +1144,7 @@ def memory_health() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Entrypoint
+# Entrypoint (SSE transport — 支持并发请求)
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -1125,4 +1154,4 @@ if __name__ == "__main__":
         sys.exit(0)
     atexit.register(_release_lock)
     _init_db()
-    mcp.run()
+    mcp.run(transport="streamable-http", host="127.0.0.1", port=8765)

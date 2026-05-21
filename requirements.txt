@@ -6,6 +6,9 @@
 # MCP 协议框架
 fastmcp
 
+# SSE 传输（HTTP 服务器）
+uvicorn
+
 # 向量存储 + 嵌入模型（ONNX 运行时已包含在 chromadb 依赖中）
 chromadb
 
