@@ -171,6 +171,7 @@ sudo systemctl enable --now memory-engine.service
 
 ```
 ├── memory_server.py        # MCP Server 主程序（23个工具）
+├── SKILL.md                # Hermes Agent 技能文件（含44个触发词）
 ├── schema.sql              # 数据库 Schema（6张表）
 ├── run_extraction.py       # 端到端事实提取
 ├── extract_facts.py        # LLM 提示词模板 + 解析
