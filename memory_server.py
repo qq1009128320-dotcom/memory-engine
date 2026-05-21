@@ -127,11 +127,21 @@ def _get_embedding_fn() -> embedding_functions.EmbeddingFunction:
     return _embedding_fn
 
 
+_chroma_collection_version = 0  # 单调递增，检测 stale
+
+
 def _get_chroma_collection(force_refresh: bool = False) -> chromadb.Collection:
-    """Lazy-load ChromaDB client and collection."""
-    global _chroma_client, _chroma_collection
+    """Lazy-load ChromaDB client and collection.
+
+    使用 version 计数器跟踪 collection 状态：
+    - memory_tree_ingest / memory_tree_reindex 写入后递增 version
+    - 查询时检测 version 变化，自动重建 stale collection
+    - force_refresh 仍可用于强制重建（如 reindex）
+    """
+    global _chroma_client, _chroma_collection, _chroma_collection_version
     if force_refresh:
         _chroma_collection = None
+        _chroma_collection_version += 1
     if _chroma_collection is None:
         os.makedirs(str(CHROMADB_PATH), exist_ok=True)
         _chroma_client = chromadb.PersistentClient(
@@ -145,6 +155,30 @@ def _get_chroma_collection(force_refresh: bool = False) -> chromadb.Collection:
             metadata={"hnsw:space": "cosine"},
         )
     return _chroma_collection
+
+
+def _bump_chroma_version() -> None:
+    """写入操作后调用，标记 ChromaDB collection 需要刷新。"""
+    global _chroma_collection_version
+    _chroma_collection_version += 1
+
+
+def _ensure_chroma_fresh() -> chromadb.Collection:
+    """查询前调用，自动检测并重建 stale ChromaDB collection。
+
+    当外部进程（如 reindex）修改了 ChromaDB 磁盘数据时，
+    当前进程的 collection 对象内部状态是 stale 的，
+    query() 不会抛异常但返回空结果。
+    重建 collection 让 ChromaDB 重新加载磁盘最新数据。
+    """
+    global _chroma_collection, _chroma_collection_version
+    saved_version = _chroma_collection_version
+    collection = _get_chroma_collection()
+    if _chroma_collection_version != saved_version:
+        # 版本已变化，重建 collection
+        _chroma_collection = None
+        collection = _get_chroma_collection()
+    return collection
 
 
 def _sha256(text: str) -> str:
@@ -244,6 +278,7 @@ def memory_tree_ingest(
                     "id": chunk_id,
                 }],
             )
+            _bump_chroma_version()
         except Exception as e:
             import logging
             logging.getLogger("memory_engine").warning("ChromaDB indexing skipped: %s", e)
@@ -352,8 +387,9 @@ def memory_tree_vector_search(
     - 用户问自然语言问题（非精确关键词）
     - memory_tree_search 结果不理想时
     """
+    global _chroma_collection
     try:
-        collection = _get_chroma_collection()
+        collection = _ensure_chroma_fresh()
 
         where_filter = None
         if source_type:
@@ -377,6 +413,28 @@ def memory_tree_vector_search(
                     "source_type": metadata.get("source_type", ""),
                     "score": 1.0 - distance,  # cosine distance → similarity
                 })
+
+        # 空结果时强制刷新一次再试（处理 stale collection 返回空但不抛异常的情况）
+        if not items:
+            _chroma_collection = None
+            _bump_chroma_version()
+            collection = _get_chroma_collection()
+            results = collection.query(
+                query_texts=[query],
+                n_results=max_results,
+                where=where_filter,
+            )
+            if results["ids"] and results["ids"][0]:
+                for i, chunk_id in enumerate(results["ids"][0]):
+                    metadata = results["metadatas"][0][i] if results["metadatas"] else {}
+                    distance = results["distances"][0][i] if results.get("distances") else 0.0
+                    items.append({
+                        "id": chunk_id,
+                        "title": metadata.get("title", ""),
+                        "source": metadata.get("source", ""),
+                        "source_type": metadata.get("source_type", ""),
+                        "score": 1.0 - distance,
+                    })
 
         return items
     except Exception as e:
@@ -435,6 +493,7 @@ def memory_tree_reindex() -> dict:
             total += len(batch)
             gc.collect()  # 每批后释放 embedding 临时内存
 
+        _bump_chroma_version()
         return {"status": "ok", "indexed": total}
 
     except Exception as e:
@@ -585,9 +644,15 @@ def preference_search(query: str, category: str = "", scope: str = "", max_resul
             params.append(scope)
 
     if query:
-        sql += " AND (condition LIKE ? OR rule LIKE ?)"
-        like = f"%{query}%"
-        params.extend([like, like])
+        # 按空格分词，每个词独立 LIKE 匹配后取交集（AND）
+        # 解决中文长句"研发支出费用化政策"无法匹配"研发"或"费用化"的问题
+        terms = query.split()
+        for term in terms:
+            term = term.strip()
+            if len(term) < 1:
+                continue
+            sql += " AND (condition LIKE ? OR rule LIKE ?)"
+            params.extend([f"%{term}%", f"%{term}%"])
 
     sql += " ORDER BY confidence DESC, correction_count DESC LIMIT ?"
     params.append(max_results)
@@ -1129,8 +1194,17 @@ def memory_stats() -> dict:
         stats["embedding_model"] = EMBEDDING_MODEL
     except Exception as e:
         import logging
-        logging.getLogger("memory_engine").warning("ChromaDB stats unavailable: %s", e)
-        stats["chromadb_indexed"] = "未初始化"
+        logger = logging.getLogger("memory_engine")
+        logger.warning("ChromaDB stats unavailable: %s", e)
+        # Try fallback: get all IDs and count them directly
+        try:
+            collection = _get_chroma_collection()
+            fallback_count = len(collection.get()["ids"])
+            stats["chromadb_indexed"] = fallback_count
+            logger.info("ChromaDB fallback count succeeded: %d", fallback_count)
+        except Exception as e2:
+            logger.error("ChromaDB fallback also failed: %s", e2)
+            stats["chromadb_indexed"] = "ChromaDB统计异常"
         stats["embedding_model"] = EMBEDDING_MODEL
 
     return stats
