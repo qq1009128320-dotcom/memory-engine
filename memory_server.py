@@ -275,11 +275,15 @@ def memory_tree_search(query: str, max_results: int = 10, source_type: str = "")
         sql += " AND source_type = ?"
         params.append(source_type)
 
-    # 全文搜索：标题或内容包含关键词
+    # 全文搜索：按词分词匹配，不做整句连续匹配
     if query:
-        sql += " AND (title LIKE ? OR content LIKE ? OR summary LIKE ?)"
-        like = f"%{query}%"
-        params.extend([like, like, like])
+        terms = query.split()
+        for term in terms:
+            if len(term) < 2:
+                continue  # 跳过单字
+            sql += " AND (title LIKE ? OR content LIKE ? OR summary LIKE ?)"
+            like = f"%{term}%"
+            params.extend([like, like, like])
 
     sql += " ORDER BY score DESC LIMIT ?"
     params.append(max_results)
@@ -407,8 +411,9 @@ def memory_tree_reindex() -> dict:
         if not rows:
             return {"status": "ok", "indexed": 0, "message": "没有需要索引的条目"}
 
-        # 批量生成 embeddings
-        batch_size = 32
+        # 批量生成 embeddings（限流：小批次 + 主动 GC）
+        import gc
+        batch_size = 16  # 降为 16，避免 embedding 计算 OOM
         total = 0
         for i in range(0, len(rows), batch_size):
             batch = rows[i:i + batch_size]
@@ -428,6 +433,7 @@ def memory_tree_reindex() -> dict:
 
             collection.add(ids=ids, documents=documents, metadatas=metadatas)
             total += len(batch)
+            gc.collect()  # 每批后释放 embedding 临时内存
 
         return {"status": "ok", "indexed": total}
 

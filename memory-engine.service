@@ -1,0 +1,21 @@
+[Unit]
+Description=Enterprise Memory Engine MCP Server
+After=network.target
+
+[Service]
+Type=simple
+User=administrator
+WorkingDirectory=/home/administrator/tools/enterprise-memory
+ExecStart=/home/administrator/tools/enterprise-memory/venv/bin/python3 /home/administrator/tools/enterprise-memory/memory_server.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/administrator/tools/enterprise-memory/logs/server.log
+StandardError=append:/home/administrator/tools/enterprise-memory/logs/server.log
+Environment=PYTHONUNBUFFERED=1
+
+# OOM 保护
+MemoryHigh=512M
+MemoryMax=1G
+
+[Install]
+WantedBy=default.target
