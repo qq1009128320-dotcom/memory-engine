@@ -33,3 +33,4 @@ memory.db
 
 # Deployment
 sync_all.sh
+.memory_server.pid

@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import atexit
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,8 +39,37 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import (
     DB_PATH, CHROMADB_PATH, CHROMADB_COLLECTION,
     EMBEDDING_MODEL, MAX_MEMORY_ROWS as MAX_ROWS,
-    MCP_SERVER_NAME,
+    MCP_SERVER_NAME, PID_FILE,
 )
+
+# ---------------------------------------------------------------------------
+# 单实例锁（防止多个 memory_server 同时运行导致 SQLite/ChromaDB 锁冲突）
+# ---------------------------------------------------------------------------
+
+def _acquire_lock() -> bool:
+    """获取 PID 文件锁。返回 True 表示获取成功，False 表示已有实例运行中。"""
+    if PID_FILE.exists():
+        try:
+            old_pid = int(PID_FILE.read_text().strip())
+            os.kill(old_pid, 0)  # 信号 0 只检查进程是否存在
+            # 进程还在运行 —— 锁被持有
+            return False
+        except (ValueError, ProcessLookupError):
+            # PID 无效或进程已死 —— 过期锁，可以抢占
+            pass
+    # 写入当前 PID
+    PID_FILE.write_text(str(os.getpid()))
+    return True
+
+
+def _release_lock() -> None:
+    """释放 PID 文件锁。"""
+    try:
+        if PID_FILE.exists() and int(PID_FILE.read_text().strip()) == os.getpid():
+            PID_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
 
 _chroma_client: chromadb.PersistentClient | None = None
 _embedding_fn: embedding_functions.EmbeddingFunction | None = None
@@ -1089,5 +1119,10 @@ def memory_health() -> dict:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    if not _acquire_lock():
+        print(f"[Memory Engine] 已有实例在运行 (PID 见 {PID_FILE})，退出。",
+              file=sys.stderr)
+        sys.exit(0)
+    atexit.register(_release_lock)
     _init_db()
     mcp.run()
