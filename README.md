@@ -15,11 +15,13 @@
 ## 四层记忆架构
 
 | 层 | 名称 | 功能 | 借鉴 |
-|---|------|------|------|
-| L1 | Memory Tree | 外部数据感知，自动同步 + 层级摘要 | OpenHuman |
-| L2 | 偏好记忆 | 从对话中自动学习规则和习惯 | Mem0 |
-| L3 | 纠错记忆 | 记住错误，≥3次自动升级为永久规则 | 独创 |
-| L4 | 知识图谱 | 实体关系 + 三级权限共享 | Zep |
+|----|------|------|------|
+|| L1 | Memory Tree | 外部数据感知，自动同步 + 层级摘要 | OpenHuman |
+|| L2 | 偏好记忆 | 从对话中自动学习规则和习惯 | Mem0 |
+|| L3 | 纠错记忆 | 记住错误，≥3次自动升级为永久规则 | 独创 |
+|| L4 | 知识图谱 | 实体关系 + 三级权限共享 | Zep |
+
+**当前版本：v1.3.0** | **ChromaDB 索引数：41** | **嵌入模型：all-MiniLM-L6-v2（384维）**
 
 ## 环境要求
 
@@ -131,30 +133,62 @@ python3 auto_fetch.py
 
 需要 `~/.hermes/.env` 中配置 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`。
 
-## 接入 Hermes
+## 接入 Hermes Agent
 
-在 `config.yaml` 中添加 MCP Server：
+Hermes Agent 通过 MCP 协议调用记忆引擎。两种方式：
+
+### 方式一：通过子进程本地启动（推荐开发/单机）
+
+在 `config.yaml` 中添加：
 
 ```yaml
 mcp_servers:
   enterprise-memory:
-    command: python3
+    command: /home/administrator/tools/enterprise-memory/venv/bin/python3
     args: ["/path/to/enterprise-memory/memory_server.py"]
-    env:
-      ENTERPRISE_MEMORY_DB: "/path/to/enterprise-memory/memory.db"
 ```
+
+### 方式二：连接已有运行中的服务（推荐生产）
+
+如果记忆引擎已作为 systemd 服务运行（端口 8765），配置为 HTTP 连接：
+
+```yaml
+mcp_servers:
+  enterprise-memory:
+    url: "http://127.0.0.1:8765/mcp"
+```
+
+### 方式三：systemd 服务自启
+
+```bash
+sudo cp memory-engine.service /etc/systemd/system/
+sudo systemctl enable --now memory-engine.service
+```
+
+服务配置了 OOM 保护（MemoryHigh=512M, MemoryMax=1G）和自动重启（Restart=always）。
 
 ## 项目结构
 
 ```
-├── memory_server.py    # MCP Server 主程序（20个工具）
-├── schema.sql          # 数据库 Schema（6张表）
-├── run_extraction.py   # 端到端事实提取
-├── extract_facts.py    # LLM 提示词模板 + 解析
-├── summary_tree.py     # 层级摘要树生成
-├── auto_fetch.py       # 飞书数据自动同步
-├── setup.sh            # 安装脚本
-└── memory.db           # SQLite 数据库（含演示数据）
+├── memory_server.py        # MCP Server 主程序（23个工具）
+├── schema.sql              # 数据库 Schema（6张表）
+├── run_extraction.py       # 端到端事实提取
+├── extract_facts.py        # LLM 提示词模板 + 解析
+├── summary_tree.py         # 层级摘要树生成
+├── auto_fetch.py           # 飞书数据自动同步
+├── observability.py        # 可观测性 + 性能指标
+├── validators.py           # 参数校验
+├── config.py               # 统一配置（.env 覆盖）
+├── log_utils.py            # 日志工具
+├── setup.sh                # 安装脚本
+├── requirements.txt        # Python 依赖
+├── memory-engine.service   # systemd 服务单元
+├── CHANGELOG.md            # 变更记录
+├── CONTRIBUTING.md         # 贡献指南
+├── .env.example            # 环境变量模板
+├── memory.db               # SQLite 数据库（含演示数据）
+├── chromadb/               # ChromaDB 向量存储
+└── logs/                   # 服务日志
 ```
 
 ## 技术栈
