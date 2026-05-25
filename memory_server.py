@@ -21,8 +21,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import chromadb
-from chromadb.utils import embedding_functions
+import faiss
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
 from cachetools import TTLCache, cached
 
@@ -45,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import (
     DB_PATH, CHROMADB_PATH, CHROMADB_COLLECTION,
     EMBEDDING_MODEL, MAX_MEMORY_ROWS as MAX_ROWS,
-    MCP_SERVER_NAME, PID_FILE,
+    MCP_SERVER_NAME, PID_FILE, ROOT,
 )
 
 # ---------------------------------------------------------------------------
@@ -77,9 +78,10 @@ def _release_lock() -> None:
         pass
 
 
-_chroma_client: chromadb.PersistentClient | None = None
-_embedding_fn: embedding_functions.EmbeddingFunction | None = None
-_chroma_collection: chromadb.Collection | None = None
+_faiss_index: faiss.Index | None = None
+_faiss_id_map: dict[int, str] = {}  # FAISS idx → chunk_id
+_next_faiss_id: int = 0
+_embedding_model: SentenceTransformer | None = None
 
 # ---------------------------------------------------------------------------
 # TTL 内存缓存层（替代 Redis，无需额外进程）
@@ -127,76 +129,62 @@ def _init_db() -> None:
         conn.commit()
 
 
-def _get_embedding_fn() -> embedding_functions.EmbeddingFunction:
-    """Lazy-load the embedding function.
+def _get_embedding_model() -> SentenceTransformer:
+    """Lazy-load the SentenceTransformer embedding model.
 
-    Uses ChromaDB built-in ONNX model (all-MiniLM-L6-v2, 384-dim, ~80MB).
-    No PyTorch/CUDA required.
+    all-MiniLM-L6-v2 (384-dim, ~80MB). No GPU required.
     """
-    global _embedding_fn
-    if _embedding_fn is None:
-        _embedding_fn = embedding_functions.DefaultEmbeddingFunction()
-    return _embedding_fn
+    global _embedding_model
+    if _embedding_model is None:
+        logger.info("Loading embedding model: %s", EMBEDDING_MODEL)
+        _embedding_model = SentenceTransformer(EMBEDDING_MODEL)
+    return _embedding_model
 
 
-_chroma_collection_version = 0  # 单调递增，检测 stale
+VECTOR_DIM = 384  # all-MiniLM-L6-v2 维度
+FAISS_INDEX_PATH = ROOT / "faiss.index"
 
 
-def _get_chroma_collection(force_refresh: bool = False) -> chromadb.Collection:
-    """Lazy-load ChromaDB client and collection.
+def _get_faiss_index() -> faiss.Index:
+    """Lazy-load FAISS index from disk.
 
-    使用 version 计数器跟踪 collection 状态：
-    - memory_tree_ingest / memory_tree_reindex 写入后递增 version
-    - 查询时检测 version 变化，自动重建 stale collection
-    - force_refresh 仍可用于强制重建（如 reindex）
+    IVF400 with L2 distance. Supports ~500万 vectors in 4GB RAM.
     """
-    global _chroma_client, _chroma_collection, _chroma_collection_version
-    if force_refresh:
-        _chroma_collection = None
-        _chroma_collection_version += 1
-    if _chroma_collection is None:
-        os.makedirs(str(CHROMADB_PATH), exist_ok=True)
-        _chroma_client = chromadb.PersistentClient(
-            path=str(CHROMADB_PATH),
-            settings=chromadb.Settings(anonymized_telemetry=False),
-        )
-        ef = _get_embedding_fn()
-        _chroma_collection = _chroma_client.get_or_create_collection(
-            name=CHROMADB_COLLECTION,
-            embedding_function=ef,
-            metadata={
-                "hnsw:space": "cosine",
-                "hnsw:construction_ef": 128,   # 默认 64 → 128（建索引更精准）
-                "hnsw:M": 32,                   # 默认 16 → 32（召回更高）
-                "hnsw:search_ef": 128,          # 搜索时探索宽度
-                "hnsw:num_threads": 4,          # 使用多线程（10核CPU）
-            },
-        )
-    return _chroma_collection
+    global _faiss_index, _faiss_id_map, _next_faiss_id
+    if _faiss_index is None:
+        if FAISS_INDEX_PATH.exists():
+            logger.info("Loading FAISS index from %s", FAISS_INDEX_PATH)
+            _faiss_index = faiss.read_index(str(FAISS_INDEX_PATH))
+            # Rebuild id_map from SQLite
+            _faiss_id_map = {}
+            _next_faiss_id = 0
+            with _get_conn() as conn:
+                conn.execute("PRAGMA query_only=ON")
+                rows = conn.execute(
+                    "SELECT id, vector FROM memory_tree_chunks WHERE vector IS NOT NULL ORDER BY ROWID"
+                ).fetchall()
+                for idx, row in enumerate(rows):
+                    if row["vector"]:
+                        _faiss_id_map[idx] = row["id"]
+                        _next_faiss_id = idx + 1
+            logger.info("FAISS index loaded: %d vectors", len(_faiss_id_map))
+        else:
+            logger.info("Creating new FAISS index (IVF, L2)")
+            # 用临时 Flat 索引兜底，reindex 时再重建
+            _faiss_index = faiss.IndexIDMap(faiss.IndexFlatL2(VECTOR_DIM))
+            _faiss_id_map = {}
+            _next_faiss_id = 0
+    return _faiss_index
 
 
-def _bump_chroma_version() -> None:
-    """写入操作后调用，标记 ChromaDB collection 需要刷新。"""
-    global _chroma_collection_version
-    _chroma_collection_version += 1
+def _embed_text(text: str) -> np.ndarray:
+    """Embed a single text to 384-dim vector."""
+    return _get_embedding_model().encode([text])[0].astype('float32')
 
 
-def _ensure_chroma_fresh() -> chromadb.Collection:
-    """查询前调用，自动检测并重建 stale ChromaDB collection。
-
-    当外部进程（如 reindex）修改了 ChromaDB 磁盘数据时，
-    当前进程的 collection 对象内部状态是 stale 的，
-    query() 不会抛异常但返回空结果。
-    重建 collection 让 ChromaDB 重新加载磁盘最新数据。
-    """
-    global _chroma_collection, _chroma_collection_version
-    saved_version = _chroma_collection_version
-    collection = _get_chroma_collection()
-    if _chroma_collection_version != saved_version:
-        # 版本已变化，重建 collection
-        _chroma_collection = None
-        collection = _get_chroma_collection()
-    return collection
+def _embed_texts(texts: list[str]) -> np.ndarray:
+    """Embed multiple texts in batch."""
+    return _get_embedding_model().encode(texts).astype('float32')
 
 
 def _sha256(text: str) -> str:
@@ -285,42 +273,38 @@ def memory_tree_ingest(
         # 写入后清空搜索缓存，保证下次搜索能查到新数据
         _search_cache.clear()
 
-        # 同时写入 ChromaDB 向量索引
+        # 生成向量并写入 FAISS
         try:
-            collection = _get_chroma_collection()
             doc_text = f"{title}\n{content[:8000]}"
-            collection.add(
-                ids=[chunk_id],
-                documents=[doc_text],
-                metadatas=[{
-                    "source": source,
-                    "source_type": source_type,
-                    "title": title,
-                    "id": chunk_id,
-                }],
+            vector = _embed_text(doc_text)
+            index = _get_faiss_index()
+
+            # 如果 index 还没训练（IVF），用 IndexIDMap 兜底
+            if hasattr(index, 'is_trained') and not index.is_trained:
+                logger.info("Index not trained, upgrading to Flat index")
+                index = faiss.IndexIDMap(faiss.IndexFlatL2(VECTOR_DIM))
+                _faiss_index = index
+
+            # 添加向量
+            fid = _next_faiss_id
+            index.add_with_ids(
+                vector.reshape(1, -1).astype('float32'),
+                np.array([fid], dtype=np.int64)
             )
-            _bump_chroma_version()
+            _faiss_id_map[fid] = chunk_id
+            _next_faiss_id = fid + 1
+
+            # 持久化
+            faiss.write_index(index, str(FAISS_INDEX_PATH))
+
+            # 同时存入 SQLite vector BLOB
+            conn.execute(
+                "UPDATE memory_tree_chunks SET vector = ? WHERE id = ?",
+                (vector.tobytes(), chunk_id),
+            )
+            conn.commit()
         except Exception as e:
-            logger.warning("ChromaDB indexing failed: %s, retrying with fresh collection...", e)
-            try:
-                # 强制重建 collection 后重试一次
-                _chroma_collection = None
-                _bump_chroma_version()
-                collection = _get_chroma_collection()
-                collection.add(
-                    ids=[chunk_id],
-                    documents=[doc_text],
-                    metadatas=[{
-                        "source": source,
-                        "source_type": source_type,
-                        "title": title,
-                        "id": chunk_id,
-                    }],
-                )
-                _bump_chroma_version()
-                logger.info("ChromaDB indexing succeeded on retry")
-            except Exception as e2:
-                logger.warning("ChromaDB indexing skipped after retry: %s", e2)
+            logger.warning("FAISS indexing failed: %s", e)
 
     return {
         "status": "ingested",
@@ -416,70 +400,57 @@ def memory_tree_vector_search(
 ) -> list[dict]:
     """
     语义向量搜索 Memory Tree。
-    使用 ChromaDB 内置 ONNX 模型 (all-MiniLM-L6-v2, 384-dim) 做语义匹配，比关键词搜索更精准。
+    使用 SentenceTransformer (all-MiniLM-L6-v2, 384-dim) + FAISS IVFFlat 索引。
 
-    优先使用此工具而非 memory_tree_search（关键词搜索）
-    当用户用自然语言描述需求时。
+    比关键词搜索更精准。Agent 应优先使用此工具。
 
     调用时机：
     - Agent 需要了解企业文档/数据时
     - 用户问自然语言问题（非精确关键词）
     - memory_tree_search 结果不理想时
     """
-    global _chroma_collection
-
     # 缓存键：query + source_type + max_results
     cache_key = f"vs:{query}:{source_type}:{max_results}"
     cached_result = _search_cache.get(cache_key)
     if cached_result is not None:
         return cached_result
+
     try:
-        collection = _ensure_chroma_fresh()
+        index = _get_faiss_index()
+        if index.ntotal == 0:
+            return []
 
-        where_filter = None
-        if source_type:
-            where_filter = {"source_type": source_type}
+        # 生成查询向量
+        query_vector = _embed_text(query)
 
-        results = collection.query(
-            query_texts=[query],
-            n_results=max_results,
-            where=where_filter,
+        # FAISS 搜索
+        distances, indices = index.search(
+            query_vector.reshape(1, -1).astype('float32'),
+            min(max_results * 2, index.ntotal)
         )
 
+        # 从 SQLite 反查元数据
         items: list[dict] = []
-        if results["ids"] and results["ids"][0]:
-            for i, chunk_id in enumerate(results["ids"][0]):
-                metadata = results["metadatas"][0][i] if results["metadatas"] else {}
-                distance = results["distances"][0][i] if results.get("distances") else 0.0
-                items.append({
-                    "id": chunk_id,
-                    "title": metadata.get("title", ""),
-                    "source": metadata.get("source", ""),
-                    "source_type": metadata.get("source_type", ""),
-                    "score": 1.0 - distance,  # cosine distance → similarity
-                })
-
-        # 空结果时强制刷新一次再试（处理 stale collection 返回空但不抛异常的情况）
-        if not items:
-            _chroma_collection = None
-            _bump_chroma_version()
-            collection = _get_chroma_collection()
-            results = collection.query(
-                query_texts=[query],
-                n_results=max_results,
-                where=where_filter,
-            )
-            if results["ids"] and results["ids"][0]:
-                for i, chunk_id in enumerate(results["ids"][0]):
-                    metadata = results["metadatas"][0][i] if results["metadatas"] else {}
-                    distance = results["distances"][0][i] if results.get("distances") else 0.0
+        with _get_conn() as conn:
+            for dist, fid in zip(distances[0], indices[0]):
+                if fid < 0 or fid not in _faiss_id_map:
+                    continue
+                chunk_id = _faiss_id_map[fid]
+                row = conn.execute(
+                    "SELECT id, source, source_type, title, summary, score FROM memory_tree_chunks WHERE id = ?",
+                    (chunk_id,),
+                ).fetchone()
+                if row:
                     items.append({
-                        "id": chunk_id,
-                        "title": metadata.get("title", ""),
-                        "source": metadata.get("source", ""),
-                        "source_type": metadata.get("source_type", ""),
-                        "score": 1.0 - distance,
+                        "id": row["id"],
+                        "title": row["title"] or "",
+                        "source": row["source"] or "",
+                        "source_type": row["source_type"] or "",
+                        "summary": row["summary"] or "",
+                        "score": 1.0 / (1.0 + dist),  # L2 → similarity
                     })
+                    if len(items) >= max_results:
+                        break
 
         # 回写缓存
         if items:
@@ -487,7 +458,7 @@ def memory_tree_vector_search(
 
         return items
     except Exception as e:
-        # 向量搜失败时降级为关键词搜索
+        logger.warning("FAISS search failed: %s, falling back to keyword search", e)
         return memory_tree_search(query, max_results, source_type)
 
 
@@ -503,46 +474,77 @@ def memory_tree_reindex() -> dict:
     - 向量索引损坏时
     """
     try:
-        collection = _get_chroma_collection(force_refresh=True)
-        # 清空现有向量索引
-        existing = collection.get()
-        if existing["ids"]:
-            collection.delete(ids=existing["ids"])
-
         # 从 SQLite 读取所有条目
         with _get_conn() as conn:
             rows = conn.execute(
-                "SELECT id, source, source_type, title, content FROM memory_tree_chunks"
+                "SELECT id, title, content FROM memory_tree_chunks"
             ).fetchall()
 
         if not rows:
             return {"status": "ok", "indexed": 0, "message": "没有需要索引的条目"}
 
-        # 批量生成 embeddings（限流：小批次 + 主动 GC）
+        # 批量生成 embeddings
         import gc
-        batch_size = 16  # 降为 16，避免 embedding 计算 OOM
+        batch_size = 16
         total = 0
+
+        # 重建 FAISS 索引
+        n_vectors = len(rows)
+        if n_vectors >= 1000:
+            n_clusters = min(400, n_vectors // 4)
+            logger.info("Creating IVF index with %d clusters for %d vectors", n_clusters, n_vectors)
+            quantizer = faiss.IndexFlatL2(VECTOR_DIM)
+            index = faiss.IndexIVFFlat(quantizer, VECTOR_DIM, n_clusters, faiss.METRIC_L2)
+            index.nprobe = 10
+            needs_train = True
+        else:
+            logger.info("Creating Flat index for %d vectors (<1000)", n_vectors)
+            index = faiss.IndexIDMap(faiss.IndexFlatL2(VECTOR_DIM))
+            needs_train = False
+
+        vectors = []
+        ids = []
+        id_map = {}
+
         for i in range(0, len(rows), batch_size):
             batch = rows[i:i + batch_size]
-            ids = []
-            documents = []
-            metadatas = []
-            for row in batch:
-                doc_text = f"{row['title']}\n{row['content'][:8000]}"
-                ids.append(row["id"])
-                documents.append(doc_text)
-                metadatas.append({
-                    "source": row["source"],
-                    "source_type": row["source_type"],
-                    "title": row["title"] or "",
-                    "id": row["id"],
-                })
+            texts = [f"{r['title']}\n{r['content'][:8000]}" for r in batch]
+            batch_vecs = _embed_texts(texts)
+            batch_ids = [r['id'] for r in batch]
 
-            collection.add(ids=ids, documents=documents, metadatas=metadatas)
+            for j, (vec, bid) in enumerate(zip(batch_vecs, batch_ids)):
+                vectors.append(vec)
+                ids.append(total + j)
+                id_map[total + j] = bid
+
             total += len(batch)
-            gc.collect()  # 每批后释放 embedding 临时内存
+            gc.collect()
 
-        _bump_chroma_version()
+        if vectors:
+            vec_array = np.array(vectors).astype('float32')
+            if needs_train:
+                index.train(vec_array)
+            index.add_with_ids(vec_array, np.array(ids, dtype=np.int64))
+
+            # 保存索引
+            faiss.write_index(index, str(FAISS_INDEX_PATH))
+
+            # 保存向量到 SQLite
+            with _get_conn() as conn:
+                for vec, bid in zip(vectors, id_map.values()):
+                    conn.execute(
+                        "UPDATE memory_tree_chunks SET vector = ? WHERE id = ?",
+                        (vec.tobytes(), bid),
+                    )
+                conn.commit()
+
+            # 更新全局状态
+            global _faiss_index, _faiss_id_map, _next_faiss_id
+            _faiss_index = index
+            _faiss_id_map = id_map
+            _next_faiss_id = total
+
+        _search_cache.clear()
         return {"status": "ok", "indexed": total}
 
     except Exception as e:
@@ -1236,22 +1238,15 @@ def memory_stats() -> dict:
             ).fetchall()),
         }
 
-    # 附加 ChromaDB 统计（需要在 with 块外面，因为 _get_chroma_collection 会打开自己的连接）
+    # FAISS 索引统计
     try:
-        collection = _get_chroma_collection()
-        stats["chromadb_indexed"] = collection.count()
+        index = _get_faiss_index()
+        stats["faiss_indexed"] = index.ntotal if index else 0
         stats["embedding_model"] = EMBEDDING_MODEL
+        stats["vector_dim"] = VECTOR_DIM
     except Exception as e:
-        logger.warning("ChromaDB stats unavailable: %s", e)
-        # Try fallback: get all IDs and count them directly
-        try:
-            collection = _get_chroma_collection()
-            fallback_count = len(collection.get()["ids"])
-            stats["chromadb_indexed"] = fallback_count
-            logger.info("ChromaDB fallback count succeeded: %d", fallback_count)
-        except Exception as e2:
-            logger.error("ChromaDB fallback also failed: %s", e2)
-            stats["chromadb_indexed"] = "ChromaDB统计异常"
+        logger.warning("FAISS stats unavailable: %s", e)
+        stats["faiss_indexed"] = "统计异常"
         stats["embedding_model"] = EMBEDDING_MODEL
 
     # 缓存统计
@@ -1270,7 +1265,7 @@ def memory_health() -> dict:
     """
     健康检查 + 运行指标。
 
-    返回数据库连接状态、ChromaDB 状态、请求量/延迟/错误率等。
+    返回数据库连接状态、FAISS 状态、请求量/延迟/错误率等。
     """
     from observability import health_check, metrics
     result = health_check()
@@ -1289,4 +1284,12 @@ if __name__ == "__main__":
         sys.exit(0)
     atexit.register(_release_lock)
     _init_db()
+    # 4GB 方案：添加 vector 列（如果不存在）
+    try:
+        with _get_conn() as conn:
+            conn.execute("ALTER TABLE memory_tree_chunks ADD COLUMN vector BLOB")
+            conn.commit()
+            logger.info("Schema migration: added vector column")
+    except Exception:
+        pass  # 列已存在，忽略
     mcp.run(transport="streamable-http", host="127.0.0.1", port=8765)
