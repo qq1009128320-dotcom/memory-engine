@@ -21,7 +21,7 @@
 || L3 | 纠错记忆 | 记住错误，≥3次自动升级为永久规则 | 独创 |
 || L4 | 知识图谱 | 实体关系 + 三级权限共享 | Zep |
 
-**当前版本：v2.0.0** | **FAISS 索引数：57** | **嵌入模型：all-MiniLM-L6-v2（384维）** | **升级：ChromaDB → FAISS**
+**当前版本：v1.3.0** | **ChromaDB 索引数：41** | **嵌入模型：all-MiniLM-L6-v2（384维）**
 
 ## 环境要求
 
@@ -196,7 +196,7 @@ sudo systemctl enable --now memory-engine.service
 
 - **MCP 协议**: FastMCP 3.x
 - **存储**: SQLite (单机) / PostgreSQL (生产)
-- **向量检索**: FAISS IVFFlat + ONNX (all-MiniLM-L6-v2, 384维) — 查询延迟 4-9ms
+- **向量检索**: ChromaDB + ONNX (all-MiniLM-L6-v2, 384维)
 - **LLM**: DeepSeek (事实提取 + 摘要生成)
 - **数据源**: 飞书 CLI / 本地文件 / 数据库
 
