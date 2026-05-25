@@ -6,8 +6,11 @@ __pycache__/
 venv/
 *.egg-info/
 
-# ChromaDB
+# ChromaDB（旧版）
 chromadb/
+
+# FAISS 向量索引
+faiss.index
 
 # SQLite
 *.db-journal

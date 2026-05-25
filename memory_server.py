@@ -44,13 +44,13 @@ from validators import (
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
 from config import (
-    DB_PATH, CHROMADB_PATH, CHROMADB_COLLECTION,
+    DB_PATH,
     EMBEDDING_MODEL, MAX_MEMORY_ROWS as MAX_ROWS,
     MCP_SERVER_NAME, PID_FILE, ROOT,
 )
 
 # ---------------------------------------------------------------------------
-# 单实例锁（防止多个 memory_server 同时运行导致 SQLite/ChromaDB 锁冲突）
+# 单实例锁（防止多个 memory_server 同时运行导致 SQLite 锁冲突）
 # ---------------------------------------------------------------------------
 
 def _acquire_lock() -> bool:
@@ -142,7 +142,7 @@ def _get_embedding_model() -> SentenceTransformer:
 
 
 VECTOR_DIM = 384  # all-MiniLM-L6-v2 维度
-FAISS_INDEX_PATH = ROOT / "faiss.index"
+# FAISS_INDEX_PATH 已从 config 导入
 
 
 def _get_faiss_index() -> faiss.Index:

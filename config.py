@@ -17,11 +17,16 @@ load_dotenv(ROOT / ".env", override=False)
 DB_PATH = Path(os.getenv("MEMORY_DB_PATH", str(ROOT / "memory.db")))
 
 # ---------------------------------------------------------------------------
-# ChromaDB 向量存储
+# FAISS 向量索引
 # ---------------------------------------------------------------------------
-CHROMADB_PATH = Path(os.getenv("CHROMADB_PATH", str(ROOT / "chromadb")))
-CHROMADB_COLLECTION = os.getenv("CHROMADB_COLLECTION", "memory_tree")
+FAISS_INDEX_PATH = os.getenv("FAISS_INDEX_PATH", str(ROOT / "faiss.index"))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+
+# ---------------------------------------------------------------------------
+# （旧版兼容）ChromaDB 配置 — 新部署不使用
+# ---------------------------------------------------------------------------
+# CHROMADB_PATH = Path(os.getenv("CHROMADB_PATH", str(ROOT / "chromadb")))
+# CHROMADB_COLLECTION = os.getenv("CHROMADB_COLLECTION", "memory_tree")
 
 # ---------------------------------------------------------------------------
 # LLM 配置
