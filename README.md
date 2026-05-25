@@ -21,7 +21,7 @@
 || L3 | 纠错记忆 | 记住错误，≥3次自动升级为永久规则 | 独创 |
 || L4 | 知识图谱 | 实体关系 + 三级权限共享 | Zep |
 
-**当前版本：v2.0.0** | **FAISS 索引数：57** | **嵌入模型：all-MiniLM-L6-v2（384维）** | **架构升级：ChromaDB → FAISS**
+**当前版本：v2.0.2** | **FAISS 索引数：57** | **嵌入模型：all-MiniLM-L6-v2（384维）** | **FAISS 向量索引**
 
 ## 环境要求
 
@@ -37,11 +37,11 @@ python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
 # 2. ONNX 嵌入模型（首次运行自动下载，80MB）
-# ChromaDB 的 DefaultEmbeddingFunction 会在首次使用时自动从 HuggingFace
-# 下载 all-MiniLM-L6-v2 ONNX 模型到 ~/.cache/chroma/onnx_models/
-# 如果网络受限，也可以手动下载到上述目录：
-# curl -L https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz | tar xz
-# 然后将解压内容放入 ~/.cache/chroma/onnx_models/all-MiniLM-L6-v2/
+# sentence-transformers 会在首次使用时自动从 HuggingFace
+# 下载 all-MiniLM-L6-v2 模型到 ~/.cache/sentence_transformers/
+# 如果网络受限，也可以手动下载：
+# pip install huggingface_hub
+# huggingface-cli download sentence-transformers/all-MiniLM-L6-v2 --local-dir ~/.cache/sentence_transformers/all-MiniLM-L6-v2
 
 # 3. 初始化数据库
 python3 -c "from memory_server import _init_db; _init_db()"
@@ -62,10 +62,9 @@ python3 memory_server.py
 | `LLM_MODEL` | 使用的 LLM 模型 | `deepseek-chat` |
 | `LLM_MAX_TOKENS` | LLM 最大输出 token | `2048` |
 | `LLM_TIMEOUT` | LLM 请求超时（秒） | `60` |
-| `ENTERPRISE_MEMORY_DB` / `MEMORY_DB_PATH` | SQLite 数据库路径 | `./memory.db` |
-| `CHROMADB_PATH` | ChromaDB 向量存储路径 | `./chromadb` |
-| `CHROMADB_COLLECTION` | ChromaDB 集合名称 | `memory_tree` |
-| `EMBEDDING_MODEL` | 嵌入模型名称 | `all-MiniLM-L6-v2` |
+|| `ENTERPRISE_MEMORY_DB` / `MEMORY_DB_PATH` | SQLite 数据库路径 | `./memory.db` |
+|| `FAISS_INDEX_PATH` | FAISS 向量索引路径 | `./faiss.index` |
+|| `EMBEDDING_MODEL` | 嵌入模型名称 | `all-MiniLM-L6-v2` |
 | `MAX_MEMORY_ROWS` | 查询结果最大行数 | `100` |
 | `MCP_SERVER_NAME` | MCP Server 名称 | `Memory Engine` |
 | `FEISHU_APP_ID` | 飞书应用 ID（飞书集成用） | 空 |
@@ -189,7 +188,6 @@ sudo systemctl enable --now memory-engine.service
 ├── .env.example            # 环境变量模板
 |── memory.db               # SQLite 数据库（含演示数据）
 |── faiss.index             # FAISS 向量索引
-|── chromadb/               # （旧版）ChromaDB 向量存储
 |── logs/                   # 服务日志
 ```
 
@@ -230,10 +228,9 @@ chmod +x deploy.sh
 ├── CHANGELOG.md            # 变更记录
 ├── CONTRIBUTING.md         # 贡献指南
 ├── .env.example            # 环境变量模板
-├── memory.db               # SQLite 数据库（含演示数据）
-├── faiss.index             # FAISS 向量索引
-├── chromadb/               # （旧版）ChromaDB 向量存储
-└── logs/                   # 服务日志
+|── memory.db               # SQLite 数据库（含演示数据）
+|── faiss.index             # FAISS 向量索引
+|── logs/                   # 服务日志
 ```
 
 ## 技术栈
