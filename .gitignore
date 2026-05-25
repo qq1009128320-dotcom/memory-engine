@@ -9,6 +9,9 @@ venv/
 # ChromaDB
 chromadb/
 
+# FAISS
+faiss.index
+
 # SQLite
 *.db-journal
 *.db-wal
