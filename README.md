@@ -21,7 +21,7 @@
 || L3 | 纠错记忆 | 记住错误，≥3次自动升级为永久规则 | 独创 |
 || L4 | 知识图谱 | 实体关系 + 三级权限共享 | Zep |
 
-**当前版本：v1.3.0** | **ChromaDB 索引数：41** | **嵌入模型：all-MiniLM-L6-v2（384维）**
+**当前版本：v2.0.0** | **FAISS 索引数：57** | **嵌入模型：all-MiniLM-L6-v2（384维）** | **架构升级：ChromaDB → FAISS**
 
 ## 环境要求
 
@@ -187,8 +187,52 @@ sudo systemctl enable --now memory-engine.service
 ├── CHANGELOG.md            # 变更记录
 ├── CONTRIBUTING.md         # 贡献指南
 ├── .env.example            # 环境变量模板
+|── memory.db               # SQLite 数据库（含演示数据）
+|── faiss.index             # FAISS 向量索引
+|── chromadb/               # （旧版）ChromaDB 向量存储
+|── logs/                   # 服务日志
+```
+
+## 一键部署
+
+```bash
+# 客户端一键部署（复制项目后执行）
+chmod +x deploy.sh
+./deploy.sh
+```
+
+部署脚本会自动完成：
+1. ✅ 检查 Python 环境（>= 3.10）
+2. ✅ 创建虚拟环境
+3. ✅ 安装依赖
+4. ✅ 初始化数据库
+5. ✅ 重建 FAISS 索引
+6. ✅ 验证安装
+
+## 项目结构
+
+```
+├── memory_server.py        # MCP Server 主程序（23个工具）
+├── SKILL.md                # Hermes Agent 技能文件（含44个触发词）
+├── schema.sql              # 数据库 Schema（6张表）
+├── run_extraction.py       # 端到端事实提取
+├── extract_facts.py        # LLM 提示词模板 + 解析
+├── summary_tree.py         # 层级摘要树生成
+├── auto_fetch.py           # 飞书数据自动同步
+├── observability.py        # 可观测性 + 性能指标
+├── validators.py           # 参数校验
+├── config.py               # 统一配置（.env 覆盖）
+├── log_utils.py            # 日志工具
+├── setup.sh                # 安装脚本
+├── deploy.sh               # 一键部署脚本
+├── requirements.txt        # Python 依赖
+├── memory-engine.service   # systemd 服务单元
+├── CHANGELOG.md            # 变更记录
+├── CONTRIBUTING.md         # 贡献指南
+├── .env.example            # 环境变量模板
 ├── memory.db               # SQLite 数据库（含演示数据）
-├── chromadb/               # ChromaDB 向量存储
+├── faiss.index             # FAISS 向量索引
+├── chromadb/               # （旧版）ChromaDB 向量存储
 └── logs/                   # 服务日志
 ```
 
@@ -196,7 +240,7 @@ sudo systemctl enable --now memory-engine.service
 
 - **MCP 协议**: FastMCP 3.x
 - **存储**: SQLite (单机) / PostgreSQL (生产)
-- **向量检索**: ChromaDB + ONNX (all-MiniLM-L6-v2, 384维)
+- **向量检索**: FAISS IVFFlat + ONNX (all-MiniLM-L6-v2, 384维) — 查询延迟 4-9ms
 - **LLM**: DeepSeek (事实提取 + 摘要生成)
 - **数据源**: 飞书 CLI / 本地文件 / 数据库
 
