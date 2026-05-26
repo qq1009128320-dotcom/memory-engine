@@ -19,7 +19,7 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, List
 
 import faiss
 import numpy as np
@@ -45,7 +45,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent))
 from config import (
     DB_PATH,
-    EMBEDDING_MODEL, MAX_MEMORY_ROWS as MAX_ROWS,
+    FAISS_INDEX_PATH, EMBEDDING_MODEL, MAX_MEMORY_ROWS as MAX_ROWS,
     MCP_SERVER_NAME, PID_FILE, ROOT,
 )
 
@@ -88,6 +88,7 @@ _embedding_model: SentenceTransformer | None = None
 # ---------------------------------------------------------------------------
 _search_cache = TTLCache(maxsize=50000, ttl=1800)  # 5 万条缓存，30 分钟过期
 _ingest_cache = TTLCache(maxsize=10000, ttl=86400)  # 去重缓存，24 小时过期
+_embed_cache = TTLCache(maxsize=2000, ttl=3600)     # 嵌入缓存，2000 条，1 小时过期
 
 mcp = FastMCP(MCP_SERVER_NAME)
 
@@ -133,11 +134,12 @@ def _get_embedding_model() -> SentenceTransformer:
     """Lazy-load the SentenceTransformer embedding model.
 
     all-MiniLM-L6-v2 (384-dim, ~80MB). No GPU required.
+    Uses local_files_only=True to avoid HF network timeouts in offline envs.
     """
     global _embedding_model
     if _embedding_model is None:
         logger.info("Loading embedding model: %s", EMBEDDING_MODEL)
-        _embedding_model = SentenceTransformer(EMBEDDING_MODEL)
+        _embedding_model = SentenceTransformer(EMBEDDING_MODEL, local_files_only=True)
     return _embedding_model
 
 
@@ -178,8 +180,13 @@ def _get_faiss_index() -> faiss.Index:
 
 
 def _embed_text(text: str) -> np.ndarray:
-    """Embed a single text to 384-dim vector."""
-    return _get_embedding_model().encode([text])[0].astype('float32')
+    """Embed a single text to 384-dim vector（带 LRU 缓存，高频重复查询复用向量）。"""
+    cached = _embed_cache.get(text)
+    if cached is not None:
+        return cached
+    vector = _get_embedding_model().encode([text])[0].astype('float32')
+    _embed_cache[text] = vector
+    return vector
 
 
 def _embed_texts(texts: list[str]) -> np.ndarray:
@@ -397,7 +404,7 @@ def memory_tree_vector_search(
     query: str,
     max_results: int = 10,
     source_type: str = "",
-) -> list[dict]:
+) -> List[dict]:
     """
     语义向量搜索 Memory Tree。
     使用 SentenceTransformer (all-MiniLM-L6-v2, 384-dim) + FAISS IVFFlat 索引。
@@ -409,57 +416,47 @@ def memory_tree_vector_search(
     - 用户问自然语言问题（非精确关键词）
     - memory_tree_search 结果不理想时
     """
-    # 缓存键：query + source_type + max_results
     cache_key = f"vs:{query}:{source_type}:{max_results}"
     cached_result = _search_cache.get(cache_key)
     if cached_result is not None:
         return cached_result
 
-    try:
-        index = _get_faiss_index()
-        if index.ntotal == 0:
-            return []
+    index = _get_faiss_index()
+    if index.ntotal == 0:
+        return []
 
-        # 生成查询向量
-        query_vector = _embed_text(query)
+    query_vector = _embed_text(query)
+    distances, indices = index.search(
+        query_vector.reshape(1, -1).astype('float32'),
+        min(max_results * 2, index.ntotal)
+    )
 
-        # FAISS 搜索
-        distances, indices = index.search(
-            query_vector.reshape(1, -1).astype('float32'),
-            min(max_results * 2, index.ntotal)
-        )
+    items: list[dict] = []
+    with _get_conn() as conn:
+        for dist, fid in zip(distances[0], indices[0]):
+            if fid < 0 or fid not in _faiss_id_map:
+                continue
+            chunk_id = _faiss_id_map[fid]
+            row = conn.execute(
+                "SELECT id, source, source_type, title, summary, score FROM memory_tree_chunks WHERE id = ?",
+                (chunk_id,),
+            ).fetchone()
+            if row:
+                items.append({
+                    "id": row["id"],
+                    "title": row["title"] or "",
+                    "source": row["source"] or "",
+                    "source_type": row["source_type"] or "",
+                    "summary": row["summary"] or "",
+                    "score": 1.0 / (1.0 + dist),
+                })
+                if len(items) >= max_results:
+                    break
 
-        # 从 SQLite 反查元数据
-        items: list[dict] = []
-        with _get_conn() as conn:
-            for dist, fid in zip(distances[0], indices[0]):
-                if fid < 0 or fid not in _faiss_id_map:
-                    continue
-                chunk_id = _faiss_id_map[fid]
-                row = conn.execute(
-                    "SELECT id, source, source_type, title, summary, score FROM memory_tree_chunks WHERE id = ?",
-                    (chunk_id,),
-                ).fetchone()
-                if row:
-                    items.append({
-                        "id": row["id"],
-                        "title": row["title"] or "",
-                        "source": row["source"] or "",
-                        "source_type": row["source_type"] or "",
-                        "summary": row["summary"] or "",
-                        "score": 1.0 / (1.0 + dist),  # L2 → similarity
-                    })
-                    if len(items) >= max_results:
-                        break
+    if items:
+        _search_cache[cache_key] = items
 
-        # 回写缓存
-        if items:
-            _search_cache[cache_key] = items
-
-        return items
-    except Exception as e:
-        logger.warning("FAISS search failed: %s, falling back to keyword search", e)
-        return memory_tree_search(query, max_results, source_type)
+    return items
 
 
 @mcp.tool
@@ -474,11 +471,16 @@ def memory_tree_reindex() -> dict:
     - 向量索引损坏时
     """
     try:
-        # 从 SQLite 读取所有条目
-        with _get_conn() as conn:
-            rows = conn.execute(
+        # 使用独立 SQLite 连接（不复用 server 线程本地连接，避免并发冲突）
+        standalone_conn = sqlite3.connect(str(DB_PATH), timeout=10)
+        standalone_conn.row_factory = sqlite3.Row
+        standalone_conn.execute("PRAGMA journal_mode=WAL")
+        try:
+            rows = standalone_conn.execute(
                 "SELECT id, title, content FROM memory_tree_chunks"
             ).fetchall()
+        finally:
+            standalone_conn.close()
 
         if not rows:
             return {"status": "ok", "indexed": 0, "message": "没有需要索引的条目"}
@@ -529,14 +531,17 @@ def memory_tree_reindex() -> dict:
             # 保存索引
             faiss.write_index(index, str(FAISS_INDEX_PATH))
 
-            # 保存向量到 SQLite
-            with _get_conn() as conn:
+            # 保存向量到 SQLite（使用独立连接）
+            standalone_conn2 = sqlite3.connect(str(DB_PATH), timeout=10)
+            try:
                 for vec, bid in zip(vectors, id_map.values()):
-                    conn.execute(
+                    standalone_conn2.execute(
                         "UPDATE memory_tree_chunks SET vector = ? WHERE id = ?",
                         (vec.tobytes(), bid),
                     )
-                conn.commit()
+                standalone_conn2.commit()
+            finally:
+                standalone_conn2.close()
 
             # 更新全局状态
             global _faiss_index, _faiss_id_map, _next_faiss_id
@@ -545,9 +550,11 @@ def memory_tree_reindex() -> dict:
             _next_faiss_id = total
 
         _search_cache.clear()
+        _embed_cache.clear()
         return {"status": "ok", "indexed": total}
 
     except Exception as e:
+        logger.error("memory_tree_reindex failed: %s", exc_info=True)
         return {"status": "error", "message": str(e)}
 
 
@@ -1274,6 +1281,27 @@ def memory_health() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# WAL checkpoint 后台线程（每 5 分钟截断 WAL，防止无限增长）
+# ---------------------------------------------------------------------------
+
+_WAL_CHECKPOINT_INTERVAL = 300  # 5 分钟
+
+
+def _wal_checkpoint_loop() -> None:
+    """后台循环，定期截断 WAL 文件。"""
+    import time as _time
+    while True:
+        _time.sleep(_WAL_CHECKPOINT_INTERVAL)
+        try:
+            conn = sqlite3.connect(str(DB_PATH), timeout=5)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+            logger.debug("WAL checkpoint completed")
+        except Exception as exc:
+            logger.warning("WAL checkpoint failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
 # Entrypoint (SSE transport — 支持并发请求)
 # ---------------------------------------------------------------------------
 
@@ -1292,4 +1320,8 @@ if __name__ == "__main__":
             logger.info("Schema migration: added vector column")
     except Exception:
         pass  # 列已存在，忽略
+    # 启动 WAL checkpoint 后台线程
+    _wal_thread = threading.Thread(target=_wal_checkpoint_loop, daemon=True)
+    _wal_thread.start()
+    logger.info("WAL checkpoint thread started (interval=%ds)", _WAL_CHECKPOINT_INTERVAL)
     mcp.run(transport="streamable-http", host="127.0.0.1", port=8765)

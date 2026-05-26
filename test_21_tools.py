@@ -201,7 +201,7 @@ run_test("memory_search - 综合检索", lambda: (
 ))
 
 run_test("memory_stats - 统计信息", lambda: (
-    ok(memory_stats()["chromadb_indexed"] >= 1)
+    ok(memory_stats().get("faiss_indexed", 0) >= 1)
 ))
 
 # ==========================================

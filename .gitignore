@@ -11,6 +11,7 @@ chromadb/
 
 # FAISS 向量索引
 faiss.index
+faiss_id_map.json
 
 # SQLite
 *.db-journal
@@ -33,9 +34,6 @@ Thumbs.db
 
 # Database (runtime data, not source)
 memory.db
-
-# Deployment
-sync_all.sh
 .memory_server.pid
 
 # Backups

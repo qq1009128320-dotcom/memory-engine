@@ -19,7 +19,7 @@ DB_PATH = Path(os.getenv("MEMORY_DB_PATH", str(ROOT / "memory.db")))
 # ---------------------------------------------------------------------------
 # FAISS 向量索引
 # ---------------------------------------------------------------------------
-FAISS_INDEX_PATH = os.getenv("FAISS_INDEX_PATH", str(ROOT / "faiss.index"))
+FAISS_INDEX_PATH = Path(os.getenv("FAISS_INDEX_PATH", str(ROOT / "faiss.index")))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 
 # ---------------------------------------------------------------------------
