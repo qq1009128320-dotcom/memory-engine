@@ -19,7 +19,7 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 import faiss
 import numpy as np
@@ -404,7 +404,7 @@ def memory_tree_vector_search(
     query: str,
     max_results: int = 10,
     source_type: str = "",
-) -> List[dict]:
+) -> list[dict]:
     """
     语义向量搜索 Memory Tree。
     使用 SentenceTransformer (all-MiniLM-L6-v2, 384-dim) + FAISS IVFFlat 索引。
@@ -448,7 +448,7 @@ def memory_tree_vector_search(
                     "source": row["source"] or "",
                     "source_type": row["source_type"] or "",
                     "summary": row["summary"] or "",
-                    "score": 1.0 / (1.0 + dist),
+                    "score": float(1.0 / (1.0 + dist)),
                 })
                 if len(items) >= max_results:
                     break
