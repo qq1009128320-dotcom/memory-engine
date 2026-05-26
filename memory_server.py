@@ -86,9 +86,9 @@ _embedding_model: SentenceTransformer | None = None
 # ---------------------------------------------------------------------------
 # TTL 内存缓存层（替代 Redis，无需额外进程）
 # ---------------------------------------------------------------------------
-_search_cache = TTLCache(maxsize=50000, ttl=1800)  # 5 万条缓存，30 分钟过期
-_ingest_cache = TTLCache(maxsize=10000, ttl=86400)  # 去重缓存，24 小时过期
-_embed_cache = TTLCache(maxsize=2000, ttl=3600)     # 嵌入缓存，2000 条，1 小时过期
+_search_cache = TTLCache(maxsize=5000, ttl=1800)   # 5 千条缓存，30 分钟过期（原 5 万条，内存优化）
+_ingest_cache = TTLCache(maxsize=1000, ttl=86400)  # 去重缓存，24 小时过期（原 1 万条，内存优化）
+_embed_cache = TTLCache(maxsize=500, ttl=3600)      # 嵌入缓存，500 条，1 小时过期（原 2000 条，内存优化）
 
 mcp = FastMCP(MCP_SERVER_NAME)
 
@@ -109,9 +109,9 @@ def _get_conn() -> sqlite3.Connection:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA cache_size=-80000")   # 8MB → 80MB（快10倍）
+        conn.execute("PRAGMA cache_size=-128000")  # 128MB（提升查询性能）
         conn.execute("PRAGMA temp_store=MEMORY")
-        conn.execute("PRAGMA mmap_size=536870912")  # 256MB → 512MB
+        conn.execute("PRAGMA mmap_size=134217728")   # 128MB（原 512MB，内存优化）
         conn.execute("PRAGMA busy_timeout=10000")   # 5s → 10s
         conn.execute("PRAGMA page_size=4096")        # 4KB 页（适配 SSD）
         _conn_local.conn = conn
@@ -1288,17 +1288,19 @@ _WAL_CHECKPOINT_INTERVAL = 300  # 5 分钟
 
 
 def _wal_checkpoint_loop() -> None:
-    """后台循环，定期截断 WAL 文件。"""
+    """后台循环，定期截断 WAL 文件 + 释放 Python 内存碎片。"""
     import time as _time
+    import gc as _gc
     while True:
         _time.sleep(_WAL_CHECKPOINT_INTERVAL)
         try:
             conn = sqlite3.connect(str(DB_PATH), timeout=5)
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             conn.close()
-            logger.debug("WAL checkpoint completed")
+            _gc.collect()  # 释放 Python 内存碎片
+            logger.debug("WAL checkpoint + GC completed")
         except Exception as exc:
-            logger.warning("WAL checkpoint failed: %s", exc)
+            logger.warning("WAL checkpoint + GC failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
