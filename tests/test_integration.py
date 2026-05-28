@@ -56,8 +56,8 @@ class TestFullMemoryFlow:
         )
 
         # 1. 录入企业数据
-        memory_tree_ingest("test:flow", "doc", "财务政策", "研发支出全部费用化。周期上月25日至本月25日。")
-        memory_tree_ingest("test:flow", "doc", "差旅制度", "一线城市800元/天。交通实报实销。")
+        memory_tree_ingest("test:flow", "manual", "财务政策", "研发支出全部费用化。周期上月25日至本月25日。")
+        memory_tree_ingest("test:flow", "manual", "差旅制度", "一线城市800元/天。交通实报实销。")
 
         # 2. 搜索（mock ChromaDB 可能返回空，用 SQL 回退验证）
         results = memory_tree_search("研发费用")
@@ -126,7 +126,7 @@ class TestFullMemoryFlow:
         from memory_server import memory_tree_ingest, preference_add, memory_stats
 
         s1 = memory_stats()
-        memory_tree_ingest("test:stats", "doc", "新文档", "内容")
+        memory_tree_ingest("test:stats", "manual", "新文档", "内容")
         preference_add(category="naming", condition="test", rule="stats_rule")
         s2 = memory_stats()
 

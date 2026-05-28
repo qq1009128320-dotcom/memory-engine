@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""记忆引擎全面审计"""
+"""记忆引擎全面审计（FAISS版本）"""
 import os, sys, json, sqlite3, tempfile
 from pathlib import Path
 
@@ -11,7 +11,6 @@ os.environ.setdefault('DEEPSEEK_API_KEY', os.environ.get('DEEPSEEK_API_KEY', 'te
 fd, tmpdb = tempfile.mkstemp(suffix='.db')
 os.close(fd)
 os.environ['MEMORY_DB_PATH'] = tmpdb
-os.environ['CHROMADB_PATH'] = str(Path(tmpdb).parent / 'audit_chromadb')
 conn = sqlite3.connect(tmpdb)
 conn.executescript(open(ROOT / 'schema.sql').read())
 conn.commit()
@@ -21,19 +20,9 @@ import importlib
 import config
 importlib.reload(config)
 
-from unittest.mock import MagicMock, patch
-import chromadb
-mock_col = MagicMock()
-mock_col.count.return_value = 2
-mock_col.add.return_value = None
-mock_col.get.return_value = {"ids": ["a","b"], "documents": ["x","y"]}
-mock_col.query.return_value = {"ids": [["a"]], "documents": [["test"]], "distances": [[0.5]]}
-mock_client = MagicMock()
-mock_client.get_or_create_collection.return_value = mock_col
-
-with patch.object(chromadb, 'PersistentClient', return_value=mock_client):
-    import memory_server as ms
-    importlib.reload(ms)
+# 使用FAISS，无需mock ChromaDB
+import memory_server as ms
+importlib.reload(ms)
 
 from validators import ValidationError
 
@@ -50,10 +39,10 @@ def check(name, fn):
         details.append(f"FAIL {name}: {e}")
 
 # === 核心功能 ===
-def t1(): r = ms.memory_tree_ingest("audit:1","doc","核心测试","功能验证"); assert r["status"]=="ingested",r
+def t1(): r = ms.memory_tree_ingest("audit:1","manual","核心测试","功能验证"); assert r["status"]=="ingested",r
 def t2(): r = ms.memory_tree_search("功能验证"); assert isinstance(r, list)
-def t3(): r = ms.memory_tree_ingest("audit:f","doc","取回","123"); f = ms.memory_tree_fetch(r["id"]); assert f is not None
-def t4(): r = ms.memory_tree_ingest("audit:s","doc","评分","内容"); s = ms.memory_tree_score(r["id"],5.0); assert s.get("status")=="ok",s
+def t3(): r = ms.memory_tree_ingest("audit:f","manual","取回","123"); f = ms.memory_tree_fetch(r["id"]); assert f is not None
+def t4(): r = ms.memory_tree_ingest("audit:s","manual","评分","内容"); s = ms.memory_tree_score(r["id"],5.0); assert s.get("status")=="ok",s
 def t5(): r = ms.preference_add("field_alias","条件","规则"); assert r["status"]=="created",r
 def t6(): ms.preference_add("naming","搜索测试","规则"); r = ms.preference_search("搜索测试"); assert len(r)>=1
 def t7(): r = ms.preference_list(); assert len(r)>=2
@@ -107,8 +96,8 @@ def t27():
 
 # === 数据一致性 ===
 def t28():
-    r = ms.memory_tree_ingest("audit:dedup","doc","重复","相同"); assert r["status"]=="ingested"
-    r2 = ms.memory_tree_ingest("audit:dedup","doc","重复","相同"); assert r2["status"]=="duplicate",r2
+    r = ms.memory_tree_ingest("audit:dedup","manual","重复","相同"); assert r["status"]=="ingested"
+    r2 = ms.memory_tree_ingest("audit:dedup","manual","重复","相同"); assert r2["status"]=="duplicate",r2
 def t29():
     r = ms.preference_add("naming","一致性","规则"); s = ms.preference_search("一致性")
     assert any(p["id"]==r["id"] for p in s)
@@ -119,8 +108,6 @@ def t30():
 for i in range(1,31):
     check(f"test_{i:02d}", globals()[f"t{i}"])
 
-import shutil
-shutil.rmtree(os.environ['CHROMADB_PATH'], ignore_errors=True)
 os.unlink(tmpdb)
 
 print(f"\n{'='*60}")

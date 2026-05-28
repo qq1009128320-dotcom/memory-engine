@@ -39,17 +39,11 @@ def test_db():
 
     # 注入环境变量
     os.environ["MEMORY_DB_PATH"] = path
-    os.environ["CHROMADB_PATH"] = str(Path(path).parent / "test_chromadb")
 
     yield path
 
     # 清理
     os.unlink(path)
-    import shutil
-
-    chroma_dir = Path(path).parent / "test_chromadb"
-    if chroma_dir.exists():
-        shutil.rmtree(chroma_dir, ignore_errors=True)
 
 
 @pytest.fixture
@@ -110,7 +104,7 @@ class TestMemoryTree:
     def test_fetch_returns_content(self, server):
         from memory_server import memory_tree_ingest, memory_tree_fetch
 
-        r = memory_tree_ingest("test:doc:4", "doc", "测试文档", "完整内容123")
+        r = memory_tree_ingest("test:doc:4", "manual", "测试文档", "完整内容123")
         fetched = memory_tree_fetch(r["id"])
         assert fetched is not None
         assert "测试文档" in str(fetched) or "完整内容123" in str(fetched)
@@ -118,7 +112,7 @@ class TestMemoryTree:
     def test_score_update(self, server):
         from memory_server import memory_tree_ingest, memory_tree_score
 
-        r = memory_tree_ingest("test:doc:5", "doc", "测试", "内容")
+        r = memory_tree_ingest("test:doc:5", "manual", "测试", "内容")
         result = memory_tree_score(r["id"], 3.0)
         assert result["status"] == "ok"
 
