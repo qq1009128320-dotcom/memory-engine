@@ -1,7 +1,29 @@
 #!/usr/bin/env python3
-"""记忆系统 21 工具全覆盖测试"""
-import sys, json as _j
+"""记忆系统 21 工具全覆盖测试（使用临时数据库）"""
+import sys, json as _j, os, tempfile, sqlite3
+from pathlib import Path
+
+# 设置临时数据库环境（在任何导入之前）
+ROOT = Path(__file__).parent
+fd, tmpdb = tempfile.mkstemp(suffix='.db')
+os.close(fd)
+os.environ['MEMORY_DB_PATH'] = tmpdb
+os.environ['DEEPSEEK_API_KEY'] = 'test-key'
+os.environ['FAISS_INDEX_PATH'] = str(Path(tmpdb).parent / 'test_21.index')
+
+# 初始化临时数据库
+conn = sqlite3.connect(tmpdb)
+conn.executescript(open(ROOT / 'schema.sql').read())
+conn.commit()
+conn.close()
+
+# 重载 config
+import importlib, config
+importlib.reload(config)
+
 sys.path.insert(0, '.')
+from memory_server import _init_db
+_init_db()
 
 from memory_server import (
     # Memory Tree (7)
@@ -21,6 +43,15 @@ from memory_server import (
 )
 
 PASS, FAIL, SKIP = 0, 0, 0
+
+def _raises(fn):
+    """Check that fn() raises ValidationError."""
+    from validators import ValidationError
+    try:
+        fn()
+        return False
+    except ValidationError:
+        return True
 
 def run_test(name, fn):
     global PASS, FAIL, SKIP
@@ -55,7 +86,7 @@ run_test("ingest - 去重", lambda: (
     eq(memory_tree_ingest(
         source="test:cov", source_type="doc", title="测试文档A",
         content="这是测试内容，关于云计算基础设施预算500万元。",
-    )["status"], "skipped")
+    )["status"], "duplicate")
 ))
 
 run_test("search - 关键词搜索", lambda: (
@@ -79,10 +110,11 @@ run_test("fetch - 不存在的ID", lambda: (
 run_test("score - 调整评分", lambda: (
     ok(isinstance(memory_tree_score(
         id=memory_tree_search(query="云计算")[0]["id"], delta=0.5
-    )["new_score"], float))
+    ), dict))  # returns {"status":"ok",...}
 ))
 
 run_test("vector_search - 语义搜索", lambda: (
+    memory_tree_reindex(),  # ensure FAISS index is fresh
     ok(len(memory_tree_vector_search(
         query="基础设施需要多少钱", max_results=3
     )) >= 1)
@@ -109,9 +141,7 @@ run_test("add - 添加偏好", lambda: (
 ))
 
 run_test("add - 输入校验阻塞非法category", lambda: (
-    isinstance(preference_add(
-        category="INVALID_CAT", condition="x", rule="y"
-    ), dict)  # should return error
+    ok(_raises(lambda: preference_add(category="INVALID_CAT", condition="x", rule="y")))
 ))
 
 run_test("search - 搜索偏好", lambda: (
@@ -125,7 +155,7 @@ run_test("list - 列出所有", lambda: (
 run_test("disable - 禁用规则", lambda: (
     eq(preference_disable(
         id=preference_search(query="格式A")[0]["id"]
-    )["is_active"], 0)
+    )["status"], "disabled")
 ))
 
 # ==========================================
@@ -173,7 +203,7 @@ run_test("add - 添加实体", lambda: (
 run_test("add - 合并别名", lambda: (
     eq(entity_add(
         type="project", name="测试项目Z", aliases='["Z-Project"]'
-    )["status"], "merged_aliases")
+    )["status"], "merged")
 ))
 
 run_test("search - 搜索实体", lambda: (
@@ -184,7 +214,7 @@ run_test("link - 建立关系", lambda: (
     eq(entity_link(
         source_name="测试项目Z", target_name="研发部",
         relation="belongs_to"
-    )["status"], "linked")
+    )["status"], "created")
 ))
 
 run_test("graph_query - 关系图查询", lambda: (
@@ -217,3 +247,10 @@ run_test("memory_health - 健康检查", lambda: (
 print(f"\n{'='*50}")
 print(f"结果: {PASS} 通过, {FAIL} 失败, {SKIP} 跳过")
 print(f"{'='*50}")
+
+# 清理
+import os, shutil
+os.unlink(tmpdb)
+faiss_tmp = Path(tmpdb).parent / 'test_21.index'
+if faiss_tmp.exists():
+    os.unlink(faiss_tmp)

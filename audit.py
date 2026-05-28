@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-os.environ['DEEPSEEK_API_KEY'] = 'test-key'
+os.environ.setdefault('DEEPSEEK_API_KEY', os.environ.get('DEEPSEEK_API_KEY', 'test-key'))
 
 # Temp DB
 fd, tmpdb = tempfile.mkstemp(suffix='.db')

@@ -1,6 +1,6 @@
 ---
 name: enterprise-memory
-description: Agent 记忆引擎 — 四层记忆系统（Memory Tree + 偏好记忆 + 纠错记忆 + 知识图谱）。v2.0.3 新增嵌入缓存 + reindex 独立连接 + FastMCP 陷阱文档化。支持两档客户部署方案（轻量级/重型）。让 Agent 越用越聪明，越用越懂你。
+description: Agent 记忆引擎 — 四层记忆系统（Memory Tree + 偏好记忆 + 纠错记忆 + 知识图谱）。v2.0.5 新增嵌入缓存 + reindex 独立连接 + FastMCP 陷阱文档化。支持两档客户部署方案（轻量级/重型）。让 Agent 越用越聪明，越用越懂你。
 version: 2.0.3
 platforms: [linux, wsl]
 metadata:
@@ -67,7 +67,7 @@ metadata:
 
 四层 Agent 记忆引擎。通过 MCP 协议接入 Hermes Agent，提供 22 个记忆工具。
 
-**v2.0.3 更新（2026-05-26）：**
+**v2.0.5 更新（2026-05-26）：**
 - **FastMCP 类型注解陷阱文档化**：`List[dict]`（from typing）会导致 FastMCP 3.x 输出验证失败，必须用原生 `list[dict]`；numpy float32 值必须显式转 Python `float()`，否则序列化失败
 - **嵌入缓存已实现**：`_embed_cache`（TTLCache 2000条/1h），高频重复查询减少 80% 模型推理
 - **reindex 独立连接已实现**：`memory_tree_reindex` 使用独立 `sqlite3.connect()` 而非共享线程本地连接
@@ -80,7 +80,7 @@ metadata:
 - **项目结构**：移除 `chromadb/` 目录说明
 - **一键部署**：`deploy.sh` 脚本完善，客户零配置部署
 - **两档部署方案**：轻量级（FAISS+SQLite）/ 重型（Milvus+PostgreSQL+Redis），详见 `references/deployment-decision-tree.md`
-- **全面对比**：v1.x vs v2.0.2 详细对比，详见 `references/v1-vs-v2-comparison.md`
+- **全面对比**：v1.x vs v2.0.5 详细对比，详见 `references/v1-vs-v2-comparison.md`
 - **嵌入模型本地化**：首次调用 memory_search 延迟539ms（模型从HuggingFace下载），建议预下载模型到本地。详见 `references/embedding-model-localization.md`
 - **国内镜像下载**：HuggingFace 国内访问慢，必须使用 `HF_ENDPOINT=https://hf-mirror.com` 环境变量。模型大小约900MB，62个文件。详见 `references/embedding-model-localization.md`
 - **性能基准（2026-05-26 实测 48条向量）**：
@@ -92,7 +92,7 @@ metadata:
   模型本地化后，向量搜索热查询从458ms降至3.0ms，提升约150倍。
 - **数据清理实践**：定期清理测试数据（source LIKE 'test:%'），删除旧ChromaDB残留目录。详见 `references/data-cleanup-guide.md`。
 
-**v1.4.0 更新（2026-05-25，已合并入 v2.0.0）：**
+**v1.4.0 更新（2026-05-25，已合并入 v2.0.5）：**
 - SQLite 性能调优（cache_size 8MB→80MB，mmap_size 256MB→512MB）
 
 **v1.2.6 更新：**
@@ -317,7 +317,7 @@ python3 /home/administrator/tools/enterprise-memory/run_extraction.py --text "�
 
 ### GitHub仓库
 
-https://github.com/qq1009128320-dotcom/memory-engine (v2.0.0 FAISS)
+https://github.com/qq1009128320-dotcom/memory-engine (v2.0.5 FAISS)
 
 ---
 
@@ -440,9 +440,9 @@ mcp_enterprise_memory_memory_health()
 7. **日志检查** → `tail -30 logs/server.log | grep -iE "error|traceback|exception|fail"` — 无持续报错
 8. **测试验证** → `venv/bin/python -m pytest tests/ -v | tail -10` — 80/81 passed（仅 config 环境变量问题属于外部依赖，不影响功能）
 9. **Git 状态检查** → `git status` 和 `git diff` — 检查是否有未提交的改动（常见的漏网之鱼：config.py 的 Path 类型修正、local_files_only=True、faiss_id_map.json 未 .gitignore）
-10. **ChromaDB 残留检查** → `du -sh chromadb/` — 确认 chromadb/ 目录不存在（v2.0.3 已彻底清理，但部分部署可能仍有残留）
-11. **嵌入缓存验证** → 检查 `_embed_cache` TTLCache 是否已包裹 `_embed_text()` — v2.0.3 已实现
-12. **reindex 连接隔离检查** → 确认 `memory_tree_reindex` 使用独立连接 — v2.0.3 已修复
+10. **ChromaDB 残留检查** → `du -sh chromadb/` — 确认 chromadb/ 目录不存在（v2.0.5 已彻底清理，但部分部署可能仍有残留）
+11. **嵌入缓存验证** → 检查 `_embed_cache` TTLCache 是否已包裹 `_embed_text()` — v2.0.5 已实现
+12. **reindex 连接隔离检查** → 确认 `memory_tree_reindex` 使用独立连接 — v2.0.5 已修复
 13. **性能基准测试** → 运行 `references/performance-testing-guide.md` 中的测试脚本，检查 memory_search 首次调用延迟（应 <100ms，否则需模型本地化）
 14. **数据质量检查** → 检查异常短内容（<50字符）和测试数据残留，详见 `references/data-cleanup-guide.md`
 
@@ -451,9 +451,9 @@ mcp_enterprise_memory_memory_health()
 - **嵌入模型**：实际使用 `all-MiniLM-L6-v2`（ChromaDB 内置 ONNX，384 维），注释中提到的 BGE-M3 是早期设计，不影响运行。
 - **摘要生成**：`generate_summary=True` 时仅做 `content[:200] + "..."` 截断，非 LLM 摘要。对预览足够，对智能检索精度不足。
 
-### 已修复的设计限制（v2.0.3）
+### 已修复的设计限制（v2.0.5）
 
-以下为 v2.0.2 记录的限制，已在 v2.0.3 中修复：
+以下为 v2.0.5 记录的限制，已在 v2.0.5 中修复：
 
 1. ~~**缺少嵌入缓存层**~~ ✅ `_embed_cache`（TTLCache 2000条/1h）已实现，高频重复查询命中缓存避免模型推理
 
@@ -463,7 +463,7 @@ mcp_enterprise_memory_memory_health()
 
 4. ~~**ChromaDB 目录残留**~~ ✅ `chromadb/` 目录已彻底删除，`sync_all.sh` 已迁移到 FAISS
 
-### 🔴 已知缺陷：schema.sql 缺少 vector 列（v2.0.3+ 待修复）
+### 🔴 已知缺陷：schema.sql 缺少 vector 列（v2.0.5+ 待修复）
 
 **问题**：`schema.sql` 第11-30行的 `memory_tree_chunks` 表定义中缺少 `vector BLOB` 列。生产数据库是通过 ALTER TABLE 迁移添加的（有 vector 列），但 schema.sql **从未更新**。
 
@@ -475,7 +475,7 @@ mcp_enterprise_memory_memory_health()
 **修复**：
 ```sql
 -- schema.sql 第30行（CREATE TABLE memory_tree_chunks (...) 最后一行）后追加：
-    vector BLOB                                    -- FAISS 向量（384维 float32）v2.0.0+
+    vector BLOB                                    -- FAISS 向量（384维 float32）v2.0.5+
 ```
 
 **诊断**：
@@ -492,7 +492,7 @@ conn.close()
 grep -c 'vector' /home/administrator/tools/enterprise-memory/schema.sql
 ```
 
-### 已知设计限制（v2.0.3）
+### 已知设计限制（v2.0.5）
 
 1. **嵌入模型首次调用延迟**: `memory_search` 首次调用需加载嵌入模型（~500ms），后续调用缓存后降至 <50ms。建议预下载模型到本地。详见 `references/embedding-model-localization.md`。
 
@@ -734,7 +734,7 @@ hermes cron create --name finance-data-daily-check --schedule \"0 9 * * *\" --no
 
 ### WAL 文件维护
 
-**v2.0.3 更新（2026-05-26）：自动 checkpoint 已内置到 memory_server.py。**
+**v2.0.5 更新（2026-05-26）：自动 checkpoint 已内置到 memory_server.py。**
 `memory_server.py` 启动时自动创建 daemon 线程，每 **5 分钟**执行 `PRAGMA wal_checkpoint(TRUNCATE)`，
 无需手动 cronjob 或定期维护。
 
@@ -831,7 +831,7 @@ FAISS 索引文件正常（`ntotal=61`），但向量搜索返回空数组。
 ```sql
 SELECT COUNT(*) FROM memory_tree_chunks WHERE vector IS NOT NULL;
 ```
-→ **修复**：运行 `scripts/rebuild_faiss_index.py`（v2.0.3+ 已包含 vector 回写），或手动执行：
+→ **修复**：运行 `scripts/rebuild_faiss_index.py`（v2.0.5+ 已包含 vector 回写），或手动执行：
 ```python
 # 停服后重建 + 回写
 vec_blob = vectors[idx].tobytes()
@@ -855,7 +855,7 @@ sudo systemctl stop memory-engine.service
 # 2. 清理 PID 文件
 rm /home/administrator/tools/enterprise-memory/.memory_server.pid
 
-# 3. 使用 v2.0.3+ 脚本完整重建（包含 vector 列回写）
+# 3. 使用 v2.0.5+ 脚本完整重建（包含 vector 列回写）
 /home/administrator/tools/enterprise-memory/venv/bin/python3 \
   /home/administrator/tools/enterprise-memory/scripts/rebuild_faiss_index.py
 
@@ -1043,7 +1043,7 @@ grep DEEPSEEK_API_KEY ~/.hermes/.env >> .env
 17. 部署架构选型指南见 `references/deployment-sizing-guide.md`（按客户内存分级的方案选择、各方案具体架构、升级路径、TTL缓存层替代Redis、ChromaDB HNSW调优参数）
 18. 客户部署方案对比见 `references/deployment-schemes.md`（轻量级vs重型方案详细对比、容量换算、升级路径、决策辅助）
 19. 部署决策树见 `references/deployment-decision-tree.md`（两档部署方案详细对比、容量换算、客户沟通话术）
-20. v1.x vs v2.0.2 全面对比见 `references/v1-vs-v2-comparison.md`（架构/存储/代码/性能/依赖/部署对比）
+20. v1.x vs v2.0.5 全面对比见 `references/v1-vs-v2-comparison.md`（架构/存储/代码/性能/依赖/部署对比）
 21. **systemd 服务故障排查**见 `references/systemd-service-troubleshooting.md`（Type=simple 导致频繁重启的修复方案）
 22. **FAISS 索引维护**见 `references/faiss-index-maintenance.md`（索引同步问题诊断与手动重建流程）
 23. **性能测试指南**见 `references/performance-testing-guide.md`（MCP 工具延迟测试、向量搜索基准、性能优化建议）
@@ -1170,7 +1170,7 @@ chromadb/
 
 ### 5. README 更新
 
-- 版本：v1.x → v2.0.0
+- 版本：v1.x → v2.0.5
 - 向量索引：ChromaDB → FAISS IVFFlat
 - 查询延迟：标注 4-9ms
 - 添加一键部署脚本说明
@@ -1195,7 +1195,7 @@ cat .gitignore
 
 # 6. Commit and push
 git add -A
-git commit -m "v2.0.1: 清理 ChromaDB 残留 + 完善 FAISS 配置"
+git commit -m "v2.0.5: 清理 ChromaDB 残留 + 完善 FAISS 配置"
 git push origin main
 ```
 

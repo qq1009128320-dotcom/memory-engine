@@ -35,7 +35,7 @@ logger = logging.getLogger("memory_engine")
 
 # 参数校验
 from validators import (
-    validate_not_empty, validate_enum, validate_int_range, validate_scope,
+    validate_not_empty, validate_enum, validate_int_range, validate_scope, validate_safe_text,
     ALLOWED_CATEGORIES, ALLOWED_SEVERITIES, ALLOWED_ERROR_CATEGORIES,
     ALLOWED_ENTITY_TYPES, ALLOWED_SCOPES, ALLOWED_SOURCE_TYPES, ALLOWED_RELATIONS,
 )
@@ -292,6 +292,7 @@ def memory_tree_ingest(
     - 用户手动导入文档时
     - 对话中产生了值得长期保留的信息时
     """
+    validate_safe_text(content, "content")
     content_hash = _sha256(content)
     chunk_id = str(uuid.uuid4())
 
@@ -1419,20 +1420,27 @@ def _wal_checkpoint_loop() -> None:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    # 1. 单实例锁
     if not _acquire_lock():
         print(f"[Memory Engine] 已有实例在运行 (PID 见 {PID_FILE})，退出。",
               file=sys.stderr)
-        sys.exit(0)
+        sys.exit(1)
     atexit.register(_release_lock)
-    _init_db()
-    # 启动时校验配置
+
+    # 2. 配置校验（在 _init_db 之前，避免数据库创建后才发现配置错误）
     try:
-        from config import validate_config
+        from config import validate_config, check_config
+        missing = check_config()
+        if missing:
+            logger.warning("配置警告: %s", "; ".join(missing))
         validate_config()
         logger.info("配置校验通过")
     except Exception as e:
         logger.error("配置校验失败: %s", e)
         sys.exit(1)
+
+    # 3. 初始化数据库
+    _init_db()
     # 4GB 方案：添加 vector 列（如果不存在）
     try:
         with _get_conn() as conn:

@@ -154,7 +154,8 @@ def build_summary_tree(rebuild: bool = False) -> dict:
                     SUMMARIZE_L1_PROMPT.format(docs=docs_text), max_tokens=800
                 )
             except Exception as e:
-                l1_summary = f"[LLM 摘要生成失败: {e}]"
+                print(f"    ⚠️ LLM 摘要生成失败，跳过分组 {group_key}: {e}")
+                continue  # 不写入 DB，跳过该 chunk
 
             l1_summaries.append({"group": group_key, "summary": l1_summary, "count": len(group_chunks)})
 
