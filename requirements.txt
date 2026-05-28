@@ -10,14 +10,13 @@ fastmcp
 uvicorn
 
 # 向量存储 + 嵌入模型
-# FAISS 向量索引（CPU 版本）
-faiss-cpu
+faiss-cpu                # FAISS 向量索引（CPU 版本）
+sentence-transformers     # 嵌入模型（all-MiniLM-L6-v2）
+numpy                     # 向量计算
+cachetools                # TTL 内存缓存
 
 # ONNX 运行时（嵌入模型推理）
 onnxruntime
-
-# ChromaDB（旧版兼容，新部署不使用）
-# chromadb
 
 # HTTP 客户端（DeepSeek API 调用、飞书集成）
 httpx
@@ -28,8 +27,6 @@ python-dotenv
 # ============================================================================
 # 开发 / 测试依赖（可选）
 # ============================================================================
-# 安装方式: pip install -r requirements.txt[dev 暂不自动安装]
-# 手动安装: pip install pytest pytest-asyncio
-
+# 安装方式: pip install pytest pytest-asyncio
 # pytest
 # pytest-asyncio

@@ -37,8 +37,10 @@ def _sha256(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(DB_PATH), timeout=15)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=10000")
     return conn
 
 
@@ -65,7 +67,7 @@ def _last_sync(source: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _ingest_to_memory_tree(source: str, source_type: str, title: str, content: str) -> dict:
-    """直接写入 SQLite（避免通过 MCP 的额外开销，同步场景下批量写入）"""
+    """直接写入 SQLite（同步场景下批量写入）。"""
     content_hash = _sha256(content)
 
     with _get_conn() as conn:
@@ -75,19 +77,19 @@ def _ingest_to_memory_tree(source: str, source_type: str, title: str, content: s
         ).fetchone()
         if existing:
             conn.execute(
-                "UPDATE memory_tree_chunks SET retrieval_count = retrieval_count + 1, "
+                "UPDATE memory_tree_chunks SET ingest_count = ingest_count + 1, "
                 "freshness_score = 1.0, updated_at = ? WHERE id = ?",
-                (_now(), existing[0]),
+                (_now(), existing["id"]),
             )
             conn.commit()
-            return {"status": "duplicate", "id": existing[0]}
+            return {"status": "duplicate", "id": existing["id"]}
 
         import uuid
         chunk_id = str(uuid.uuid4())
         conn.execute(
             """INSERT INTO memory_tree_chunks
-               (id, source, source_type, title, content, content_hash, score, metadata)
-               VALUES (?, ?, ?, ?, ?, ?, 1.0, ?)""",
+               (id, source, source_type, title, content, content_hash, score, metadata, faiss_id)
+               VALUES (?, ?, ?, ?, ?, ?, 1.0, ?, -1)""",
             (chunk_id, source, source_type, title, content, content_hash, "{}"),
         )
         conn.commit()

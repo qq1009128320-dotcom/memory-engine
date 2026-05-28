@@ -29,6 +29,8 @@ from cachetools import TTLCache, cached
 
 from fastmcp import FastMCP
 
+from observability import health_check, metrics
+
 logger = logging.getLogger("memory_engine")
 
 # 参数校验
@@ -1314,7 +1316,6 @@ def memory_health() -> dict:
 
     返回数据库连接状态、FAISS 状态、请求量/延迟/错误率等。
     """
-    from observability import health_check, metrics
     result = health_check()
     result["metrics"] = metrics.snapshot()
     return result

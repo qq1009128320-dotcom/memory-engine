@@ -321,3 +321,84 @@ class TestInputValidation:
 
         with pytest.raises(ValidationError):
             entity_link("a", "b", "invalid_relation")
+
+
+class TestFAISSIntegrity:
+    """FAISS 索引 + faiss_id 一致性测试。"""
+
+    def test_reindex_sets_faiss_id(self, server, test_db):
+        """memory_tree_reindex 后所有 chunk 应有 faiss_id >= 0。"""
+        import sqlite3
+        from memory_server import memory_tree_ingest, memory_tree_reindex
+
+        # 录入数据
+        memory_tree_ingest("test:faiss", "doc", "FAISS测试", "向量索引一致性验证")
+        memory_tree_ingest("test:faiss2", "doc", "FAISS测试2", "第二条数据")
+
+        # 重建索引
+        result = memory_tree_reindex()
+        assert result["status"] == "ok"
+
+        # 验证数据库
+        conn = sqlite3.connect(test_db)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, faiss_id FROM memory_tree_chunks WHERE faiss_id >= 0"
+        ).fetchall()
+        conn.close()
+
+        assert len(rows) >= 2, f"至少2条应有faiss_id, 实际: {len(rows)}"
+        for row in rows:
+            assert row["faiss_id"] >= 0, f"faiss_id 应为非负: {dict(row)}"
+
+    def test_faiss_id_map_rebuilds_after_restart(self, server, test_db):
+        """模拟重启：_get_faiss_index 应从数据库 faiss_id 字段重建 id_map。"""
+        from memory_server import (
+            memory_tree_ingest,
+            memory_tree_reindex,
+            _get_faiss_index,
+            _faiss_id_map,
+        )
+
+        # 录入并索引
+        memory_tree_ingest("test:restart", "doc", "重启测试", "模拟重启后恢复")
+        memory_tree_reindex()
+
+        # 记录当前 map
+        original_map = dict(_faiss_id_map)
+
+        # 模拟重启：强制重载 FAISS index
+        import memory_server as ms
+        ms._faiss_index = None
+        ms._faiss_id_map = {}
+        ms._next_faiss_id = 0
+
+        index = _get_faiss_index()
+        rebuilt_map = dict(ms._faiss_id_map)
+
+        # 验证重建后映射一致
+        assert len(rebuilt_map) >= len(original_map), (
+            f"重建后映射数 ({len(rebuilt_map)}) 不应少于原始 ({len(original_map)})"
+        )
+
+    def test_vector_search_returns_results(self, server):
+        """向量搜索应返回 FAISS 索引中的结果。"""
+        from memory_server import (
+            memory_tree_ingest,
+            memory_tree_reindex,
+            memory_tree_vector_search,
+        )
+
+        memory_tree_ingest(
+            source="test:vector",
+            source_type="doc",
+            title="向量检索测试",
+            content="FAISS语义搜索功能验证测试内容",
+        )
+        memory_tree_reindex()
+
+        results = memory_tree_vector_search("语义搜索", max_results=5)
+        assert len(results) >= 1, f"向量搜索应有结果, 实际: {len(results)}"
+        assert any("向量检索" in (r.get("title", "")) for r in results), (
+            f"搜索结果应包含向量检索: {results}"
+        )
