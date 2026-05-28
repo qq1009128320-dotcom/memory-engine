@@ -25,7 +25,7 @@ import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-from cachetools import TTLCache, cached
+from cachetools import TTLCache
 
 from fastmcp import FastMCP
 
@@ -78,7 +78,7 @@ def _release_lock() -> None:
         if PID_FILE.exists() and int(PID_FILE.read_text().strip()) == os.getpid():
             PID_FILE.unlink(missing_ok=True)
     except Exception:
-        pass
+        logger.debug("释放 PID 锁失败（可能已被其他进程清理）")
 
 
 _faiss_index: faiss.Index | None = None
@@ -90,7 +90,6 @@ _embedding_model: SentenceTransformer | None = None
 # TTL 内存缓存层（替代 Redis，无需额外进程）
 # ---------------------------------------------------------------------------
 _search_cache = TTLCache(maxsize=5000, ttl=1800)   # 5 千条缓存，30 分钟过期（原 5 万条，内存优化）
-_ingest_cache = TTLCache(maxsize=1000, ttl=86400)  # 去重缓存，24 小时过期（原 1 万条，内存优化）
 _embed_cache = TTLCache(maxsize=500, ttl=3600)      # 嵌入缓存，500 条，1 小时过期（原 2000 条，内存优化）
 
 # ---------------------------------------------------------------------------
@@ -136,10 +135,6 @@ def _rate_limit():
 
 
 mcp = FastMCP(MCP_SERVER_NAME)
-
-# ---------------------------------------------------------------------------
-# Database helpers
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # SQLite 连接池（线程本地 + 性能优化）
@@ -394,7 +389,7 @@ def memory_tree_ingest(
 
             fid = _next_faiss_id
             index.add_with_ids(
-                vector.reshape(1, -1).astype("float32"),
+                vector.reshape(1, -1),
                 np.array([fid], dtype=np.int64),
             )
             _faiss_id_map[fid] = chunk_id
@@ -423,6 +418,13 @@ def memory_tree_ingest(
         except Exception as rollback_err:
             logger.error("回滚失败: %s", rollback_err)
 
+    if not faiss_ok:
+        return {
+            "status": "error",
+            "message": "FAISS 索引失败，数据已回滚。请重试或检查嵌入模型。",
+            "id": chunk_id,
+            "hash": content_hash,
+        }
     return {
         "status": "ingested",
         "id": chunk_id,
@@ -1419,8 +1421,8 @@ def memory_stats() -> dict:
     stats["cache"] = {
         "search_cache_size": len(_search_cache),
         "search_cache_maxsize": _search_cache.maxsize,
-        "ingest_cache_size": len(_ingest_cache),
-        "ingest_cache_maxsize": _ingest_cache.maxsize,
+        "embed_cache_size": len(_embed_cache),
+        "embed_cache_maxsize": _embed_cache.maxsize,
     }
 
     return stats
@@ -1494,7 +1496,7 @@ if __name__ == "__main__":
             conn.commit()
             logger.info("Schema migration: added vector column")
     except Exception:
-        pass  # 列已存在，忽略
+        logger.debug("Schema migration skipped: vector column already exists")
     # 启动指标持久化线程
     from observability import start_metrics_persist_thread
     start_metrics_persist_thread()
@@ -1502,5 +1504,6 @@ if __name__ == "__main__":
     _wal_thread = threading.Thread(target=_wal_checkpoint_loop, daemon=True)
     _wal_thread.start()
     logger.info("WAL checkpoint thread started (interval=%ds)", _WAL_CHECKPOINT_INTERVAL)
-    logger.info("Memory Engine v2.0.5 starting on %s:%d", "127.0.0.1", 8765)
-    mcp.run(transport="streamable-http", host="127.0.0.1", port=8765)
+    from config import MCP_SERVER_HOST, MCP_SERVER_PORT
+    logger.info("Memory Engine v2.1.0 starting on %s:%d", MCP_SERVER_HOST, MCP_SERVER_PORT)
+    mcp.run(transport="streamable-http", host=MCP_SERVER_HOST, port=MCP_SERVER_PORT)

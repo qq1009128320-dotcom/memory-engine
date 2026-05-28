@@ -1,7 +1,7 @@
 """
 可观测性 + 性能工具 — trace_id、指标、LLM 重试
 
-v2.0.5: 指标持久化到 SQLite，支持重启后恢复。
+v2.1.0: 指标持久化到 SQLite，支持重启后恢复。
 """
 
 import json
@@ -87,7 +87,8 @@ class Metrics:
             path = ROOT / ".metrics.json"
             path.write_text(json.dumps(self.snapshot()))
         except Exception:
-            pass
+            import logging
+            logging.getLogger("memory_engine").debug("Metrics persist failed (non-fatal)")
 
     def _load_persisted(self):
         """启动时从磁盘恢复上次指标。"""
@@ -101,7 +102,10 @@ class Metrics:
                 self.llm_call_count = data.get("llm_calls", 0)
                 self.llm_error_count = data.get("llm_errors", 0)
         except Exception:
-            pass
+            self.request_count = 0
+            self.error_count = 0
+            self.llm_call_count = 0
+            self.llm_error_count = 0
 
 
 metrics = Metrics()
