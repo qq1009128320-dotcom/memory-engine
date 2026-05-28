@@ -233,7 +233,7 @@ def save_extracted_facts(extracted: dict) -> dict[str, int]:
         try:
             aliases = ent.get("aliases", [])
             result = entity_add(
-                type=ent.get("type", "unknown"),
+                type=ent.get("type", "document"),
                 name=ent.get("name", ""),
                 aliases=json.dumps(aliases, ensure_ascii=False) if isinstance(aliases, list) else str(aliases),
                 properties=json.dumps(ent.get("properties", {}), ensure_ascii=False),
