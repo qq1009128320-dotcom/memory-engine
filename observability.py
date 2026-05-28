@@ -1,7 +1,10 @@
 """
-可观测性 + 性能工具 — trace_id、指标、LLM 重试、嵌入缓存
+可观测性 + 性能工具 — trace_id、指标、LLM 重试
+
+v2.0.5: 指标持久化到 SQLite，支持重启后恢复。
 """
 
+import json
 import time
 import uuid
 import threading
@@ -30,7 +33,7 @@ def new_trace() -> str:
 
 
 # ---------------------------------------------------------------------------
-# 性能指标（进程内计数）
+# 性能指标（进程内计数 + 定期持久化）
 # ---------------------------------------------------------------------------
 class Metrics:
     def __init__(self):
@@ -40,6 +43,7 @@ class Metrics:
         self.total_latency_ms = 0.0
         self.llm_call_count = 0
         self.llm_error_count = 0
+        self._load_persisted()
 
     def record_request(self, latency_ms: float):
         with self._lock:
@@ -70,8 +74,41 @@ class Metrics:
                 "error_rate": round(self.error_count / max(self.request_count, 1), 4),
             }
 
+    def persist(self):
+        """持久化当前指标到磁盘（由后台线程定期调用）。"""
+        try:
+            from config import ROOT
+            path = ROOT / ".metrics.json"
+            path.write_text(json.dumps(self.snapshot()))
+        except Exception:
+            pass
+
+    def _load_persisted(self):
+        """启动时从磁盘恢复上次指标。"""
+        try:
+            from config import ROOT
+            path = ROOT / ".metrics.json"
+            if path.exists():
+                data = json.loads(path.read_text())
+                self.request_count = data.get("requests", 0)
+                self.error_count = data.get("errors", 0)
+                self.llm_call_count = data.get("llm_calls", 0)
+                self.llm_error_count = data.get("llm_errors", 0)
+        except Exception:
+            pass
+
 
 metrics = Metrics()
+
+
+def start_metrics_persist_thread(interval: int = 300):
+    """启动后台线程，每 interval 秒持久化指标。"""
+    def _loop():
+        while True:
+            time.sleep(interval)
+            metrics.persist()
+    t = threading.Thread(target=_loop, daemon=True)
+    t.start()
 
 
 # ---------------------------------------------------------------------------

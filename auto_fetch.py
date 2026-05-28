@@ -67,33 +67,44 @@ def _last_sync(source: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _ingest_to_memory_tree(source: str, source_type: str, title: str, content: str) -> dict:
-    """直接写入 SQLite（同步场景下批量写入）。"""
+    """直接写入 SQLite（同步场景下批量写入）。
+    带重试机制：写入失败自动重试最多 3 次。
+    """
     content_hash = _sha256(content)
+    max_retries = 3
 
-    with _get_conn() as conn:
-        # 去重
-        existing = conn.execute(
-            "SELECT id FROM memory_tree_chunks WHERE content_hash = ?", (content_hash,)
-        ).fetchone()
-        if existing:
-            conn.execute(
-                "UPDATE memory_tree_chunks SET ingest_count = ingest_count + 1, "
-                "freshness_score = 1.0, updated_at = ? WHERE id = ?",
-                (_now(), existing["id"]),
-            )
-            conn.commit()
-            return {"status": "duplicate", "id": existing["id"]}
+    for attempt in range(max_retries):
+        try:
+            with _get_conn() as conn:
+                existing = conn.execute(
+                    "SELECT id FROM memory_tree_chunks WHERE content_hash = ?", (content_hash,)
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE memory_tree_chunks SET ingest_count = ingest_count + 1, "
+                        "freshness_score = 1.0, updated_at = ? WHERE id = ?",
+                        (_now(), existing["id"]),
+                    )
+                    conn.commit()
+                    return {"status": "duplicate", "id": existing["id"]}
 
-        import uuid
-        chunk_id = str(uuid.uuid4())
-        conn.execute(
-            """INSERT INTO memory_tree_chunks
-               (id, source, source_type, title, content, content_hash, score, metadata, faiss_id)
-               VALUES (?, ?, ?, ?, ?, ?, 1.0, ?, -1)""",
-            (chunk_id, source, source_type, title, content, content_hash, "{}"),
-        )
-        conn.commit()
-        return {"status": "ingested", "id": chunk_id}
+                import uuid
+                chunk_id = str(uuid.uuid4())
+                conn.execute(
+                    """INSERT INTO memory_tree_chunks
+                       (id, source, source_type, title, content, content_hash, score, metadata, faiss_id)
+                       VALUES (?, ?, ?, ?, ?, ?, 1.0, ?, -1)""",
+                    (chunk_id, source, source_type, title, content, content_hash, "{}"),
+                )
+                conn.commit()
+                return {"status": "ingested", "id": chunk_id}
+        except sqlite3.OperationalError:
+            if attempt < max_retries - 1:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            raise
+
+    return {"status": "error", "message": "写入失败（已达最大重试次数）"}
 
 
 # ---------------------------------------------------------------------------

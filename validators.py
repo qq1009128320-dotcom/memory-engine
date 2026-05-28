@@ -2,6 +2,7 @@
 MCP 工具参数校验
 """
 
+import re
 from typing import Any
 
 
@@ -17,10 +18,19 @@ def validate_not_empty(value: str, name: str) -> str:
 
 
 def validate_length(value: str, name: str, max_len: int = 50000) -> str:
-    """限制字符串长度。"""
+    """限制字符串长度，超长自动截断。"""
     if len(value) > max_len:
-        raise ValidationError(f"{name} 超过最大长度 {max_len} (当前 {len(value)})")
+        return value[:max_len]
     return value
+
+
+def validate_safe_text(value: str, name: str) -> str:
+    """过滤特殊字符，防止注入和破坏。"""
+    # 移除 NULL 字节和不可打印控制字符（保留换行和制表符）
+    cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', value)
+    if cleaned != value:
+        raise ValidationError(f"{name} 包含非法控制字符")
+    return cleaned
 
 
 def validate_enum(value: str, name: str, allowed: list[str]) -> str:
@@ -44,6 +54,14 @@ def validate_scope(value: str) -> str:
     if value.startswith("team:"):
         return value
     raise ValidationError(f"scope 格式无效: {value!r}，允许: {ALLOWED_SCOPES} 或 'team:<部门>'")
+
+
+def validate_coerce_int(value: Any, name: str, default: int = 0) -> int:
+    """尝试将输入转为整数，失败返回默认值。"""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
 
 
 # 预定义允许值

@@ -78,10 +78,11 @@ class TestValidateLength:
         result = validate_length("hello", "text", max_len=100)
         assert result == "hello"
 
-    def test_exceeds_limit_raises(self):
-        """String exceeding max length raises."""
-        with pytest.raises(ValidationError, match="超过最大长度"):
-            validate_length("abcdefghij", "text", max_len=5)
+    def test_exceeds_limit_truncates(self):
+        """String exceeding max length is truncated, not rejected."""
+        result = validate_length("abcdefghij", "text", max_len=5)
+        assert result == "abcde"
+        assert len(result) == 5
 
     def test_default_max_length(self):
         """Default max length is 50000."""

@@ -37,7 +37,7 @@ LLM_API_KEY    = os.getenv("DEEPSEEK_API_KEY", "")
 LLM_BASE_URL   = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 LLM_MODEL      = os.getenv("LLM_MODEL", "deepseek-chat")
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "2048"))
-LLM_TIMEOUT    = int(os.getenv("LLM_TIMEOUT", "60"))
+LLM_TIMEOUT    = int(os.getenv("LLM_TIMEOUT", "30"))    # 生产默认 30 秒（原 60 秒）
 
 # ---------------------------------------------------------------------------
 # 飞书集成
@@ -51,13 +51,26 @@ FEISHU_ENABLED    = os.getenv("FEISHU_ENABLED", "1")
 # 限制
 # ---------------------------------------------------------------------------
 
-MAX_MEMORY_ROWS = int(os.getenv("MAX_MEMORY_ROWS", "100"))
+MAX_MEMORY_ROWS       = int(os.getenv("MAX_MEMORY_ROWS", "100"))
+MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", "50"))
+MAX_CONTENT_LENGTH    = int(os.getenv("MAX_CONTENT_LENGTH", "50000"))  # 单条内容上限
 
 # ---------------------------------------------------------------------------
 # MCP Server
 # ---------------------------------------------------------------------------
 
 MCP_SERVER_NAME = os.getenv("MCP_SERVER_NAME", "Memory Engine")
+MCP_SERVER_HOST = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
+MCP_SERVER_PORT = int(os.getenv("MCP_SERVER_PORT", "8765"))
+
+# ---------------------------------------------------------------------------
+# 日志
+# ---------------------------------------------------------------------------
+
+LOG_LEVEL          = os.getenv("LOG_LEVEL", "INFO")
+LOG_FILE           = os.getenv("LOG_FILE", "")               # 空 = 仅 stderr
+LOG_MAX_BYTES      = int(os.getenv("LOG_MAX_BYTES", "10485760"))   # 10 MB 轮转
+LOG_BACKUP_COUNT   = int(os.getenv("LOG_BACKUP_COUNT", "5"))       # 保留 5 个历史文件
 
 # ---------------------------------------------------------------------------
 # PID 锁文件（防止多个实例同时启动）
@@ -72,6 +85,21 @@ PID_FILE = Path(os.getenv("MEMORY_PID_FILE", str(ROOT / ".memory_server.pid")))
 def check_config() -> list[str]:
     """检查必需配置项，返回缺失项列表。"""
     missing = []
-    if not LLM_API_KEY:
+    if not LLM_API_KEY and not os.getenv("SKIP_API_KEY_CHECK"):
         missing.append("DEEPSEEK_API_KEY (事实提取和摘要生成需要)")
+    if not DB_PATH.exists():
+        missing.append(f"数据库路径不存在: {DB_PATH}")
     return missing
+
+
+def validate_config() -> None:
+    """启动时校验配置合法性，不合法直接 raise。"""
+    errors = []
+    if LLM_TIMEOUT < 5:
+        errors.append(f"LLM_TIMEOUT 过小: {LLM_TIMEOUT}s（建议 >= 10s）")
+    if MAX_CONCURRENT_REQUESTS < 1:
+        errors.append(f"MAX_CONCURRENT_REQUESTS 无效: {MAX_CONCURRENT_REQUESTS}")
+    if MAX_CONTENT_LENGTH < 1000:
+        errors.append(f"MAX_CONTENT_LENGTH 过小: {MAX_CONTENT_LENGTH}")
+    if errors:
+        raise ValueError("配置校验失败:\n  " + "\n  ".join(errors))

@@ -1,21 +1,31 @@
 [Unit]
-Description=Enterprise Memory Engine MCP Server
+Description=记忆引擎 MCP Server (Memory Engine)
+Documentation=https://github.com/qq1009128320-dotcom/memory-engine
 After=network.target
 
 [Service]
 Type=simple
-User=administrator
-WorkingDirectory=/home/administrator/tools/enterprise-memory
-ExecStart=/home/administrator/tools/enterprise-memory/venv/bin/python3 /home/administrator/tools/enterprise-memory/memory_server.py
-Restart=always
+User=memory
+Group=memory
+WorkingDirectory=/opt/memory-engine
+ExecStart=/opt/memory-engine/venv/bin/python memory_server.py
+Restart=on-failure
 RestartSec=5
-StandardOutput=append:/home/administrator/tools/enterprise-memory/logs/server.log
-StandardError=append:/home/administrator/tools/enterprise-memory/logs/server.log
-Environment=PYTHONUNBUFFERED=1
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
-# OOM 保护 — 基线内存 ~700MB(torch+模型+SQLite), 峰值 ~1.2GB
-MemoryHigh=1536M
+# 资源限制
+MemoryHigh=1G
 MemoryMax=2G
+CPUQuota=200%
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=memory-engine
+
+# 环境变量
+EnvironmentFile=/opt/memory-engine/.env
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
