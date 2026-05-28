@@ -73,4 +73,4 @@ ALLOWED_SCOPES         = ["personal", "team", "organization"]
 ALLOWED_RELATIONS      = ["belongs_to", "manages", "alias_of", "depends_on", "owns", "approves", "works_in"]
 # 新增 auto_fetch / feishu，兼容飞书同步场景
 ALLOWED_SOURCE_TYPES = ["manual", "extracted", "corrected", "auto_fetch", "feishu",
-                        "feishu:doc", "feishu:base", "file"]
+                        "feishu:doc", "feishu:base", "doc", "table", "file"]

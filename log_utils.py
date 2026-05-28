@@ -87,5 +87,5 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(f"memory_engine.{name}")
 
 
-# 模块初始化时按默认配置
-setup_logging()
+# setup_logging() 由 memory_server.py 入口调用，不在此处自动执行
+# 如其他脚本需要，显式调用 setup_logging()

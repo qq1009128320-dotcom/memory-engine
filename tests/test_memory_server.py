@@ -19,7 +19,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # 设置测试环境变量（在任何导入之前）
 os.environ.setdefault("DEEPSEEK_API_KEY", "test-key")
 os.environ.setdefault("MEMORY_DB_PATH", "")
-os.environ.setdefault("CHROMADB_PATH", "")
 os.environ.setdefault("FAISS_INDEX_PATH", "/tmp/test_faiss.index")
 
 
@@ -68,7 +67,7 @@ class TestMemoryTree:
 
         result = memory_tree_ingest(
             source="test:doc:1",
-            source_type="doc",
+            source_type="manual",
             title="测试文档",
             content="这是一段测试内容",
         )
@@ -88,23 +87,23 @@ class TestMemoryTree:
     def test_ingest_dedup(self, server):
         from memory_server import memory_tree_ingest
 
-        r1 = memory_tree_ingest("test:doc:2", "doc", "重复文档", "相同内容")
-        r2 = memory_tree_ingest("test:doc:2", "doc", "重复文档", "相同内容")
+        r1 = memory_tree_ingest("test:doc:2", "重复文档", "相同内容", source_type="manual")
+        r2 = memory_tree_ingest("test:doc:2", "重复文档", "相同内容", source_type="manual")
         assert r1["status"] == "ingested"
         assert r2["status"] == "duplicate"
 
     def test_search_finds_chunks(self, server):
         from memory_server import memory_tree_search, memory_tree_ingest
 
-        memory_tree_ingest("test:doc:3", "doc", "财务制度", "研发支出全部费用化处理")
+        memory_tree_ingest("test:doc:3", "财务制度", "研发支出全部费用化处理", source_type="manual")
         # keyword search uses SQL LIKE, not ChromaDB
         results = memory_tree_search("研发", max_results=5)
-        assert len(results) >= 1 or True  # mock ChromaDB may return empty
+        assert len(results) >= 1, f"SQL搜索应有结果, 实际: {len(results)}"
 
     def test_fetch_returns_content(self, server):
         from memory_server import memory_tree_ingest, memory_tree_fetch
 
-        r = memory_tree_ingest("test:doc:4", "manual", "测试文档", "完整内容123")
+        r = memory_tree_ingest("test:doc:4", "测试文档", "完整内容123", source_type="manual")
         fetched = memory_tree_fetch(r["id"])
         assert fetched is not None
         assert "测试文档" in str(fetched) or "完整内容123" in str(fetched)
@@ -112,7 +111,7 @@ class TestMemoryTree:
     def test_score_update(self, server):
         from memory_server import memory_tree_ingest, memory_tree_score
 
-        r = memory_tree_ingest("test:doc:5", "manual", "测试", "内容")
+        r = memory_tree_ingest("test:doc:5", "测试", "内容", source_type="manual")
         result = memory_tree_score(r["id"], 3.0)
         assert result["status"] == "ok"
 
@@ -256,7 +255,7 @@ class TestCrossLayer:
             memory_search,
         )
 
-        memory_tree_ingest("test:cross", "doc", "跨层测试文档", "测试综合检索功能")
+        memory_tree_ingest("test:cross", "跨层测试文档", "测试综合检索功能", source_type="manual")
         preference_add(category="naming", condition="测试", rule="跨层规则")
 
         result = memory_search("跨层")
@@ -375,7 +374,6 @@ class TestFAISSIntegrity:
 
         memory_tree_ingest(
             source="test:vector",
-            source_type="doc",
             title="向量检索测试",
             content="FAISS语义搜索功能验证测试内容",
         )

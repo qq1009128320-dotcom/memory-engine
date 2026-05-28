@@ -13,7 +13,6 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 os.environ.setdefault("DEEPSEEK_API_KEY", "test-key")
 os.environ.setdefault("MEMORY_DB_PATH", "")
-os.environ.setdefault("CHROMADB_PATH", "")
 os.environ.setdefault("FAISS_INDEX_PATH", "/tmp/test_faiss.index")
 
 
@@ -56,12 +55,12 @@ class TestFullMemoryFlow:
         )
 
         # 1. 录入企业数据
-        memory_tree_ingest("test:flow", "manual", "财务政策", "研发支出全部费用化。周期上月25日至本月25日。")
-        memory_tree_ingest("test:flow", "manual", "差旅制度", "一线城市800元/天。交通实报实销。")
+        memory_tree_ingest("test:flow", "财务政策", "研发支出全部费用化。周期上月25日至本月25日。", source_type="manual")
+        memory_tree_ingest("test:flow", "差旅制度", "一线城市800元/天。交通实报实销。", source_type="manual")
 
         # 2. 搜索（mock ChromaDB 可能返回空，用 SQL 回退验证）
-        results = memory_tree_search("研发费用")
-        assert len(results) >= 1 or True
+        results = memory_tree_search("研发支出")
+        assert len(results) >= 1, f"整合搜索应有结果, 实际: {len(results)}"
 
         # 3. 模拟 Agent 被纠正 → 记录
         preference_add(category="field_alias", condition="金额查询", rule="用 amt_jpy 不用 base_amt")
@@ -126,7 +125,7 @@ class TestFullMemoryFlow:
         from memory_server import memory_tree_ingest, preference_add, memory_stats
 
         s1 = memory_stats()
-        memory_tree_ingest("test:stats", "manual", "新文档", "内容")
+        memory_tree_ingest("test:stats", "新文档", "内容", source_type="manual")
         preference_add(category="naming", condition="test", rule="stats_rule")
         s2 = memory_stats()
 
