@@ -93,6 +93,48 @@ _search_cache = TTLCache(maxsize=5000, ttl=1800)   # 5 千条缓存，30 分钟�
 _ingest_cache = TTLCache(maxsize=1000, ttl=86400)  # 去重缓存，24 小时过期（原 1 万条，内存优化）
 _embed_cache = TTLCache(maxsize=500, ttl=3600)      # 嵌入缓存，500 条，1 小时过期（原 2000 条，内存优化）
 
+# ---------------------------------------------------------------------------
+# 生产级防护：FAISS 写锁 + 请求限流 + 日志
+# ---------------------------------------------------------------------------
+_faiss_write_lock = threading.Lock()          # FAISS 索引并发写入锁
+_request_semaphore = threading.BoundedSemaphore(50)  # 最大并发 50 请求
+_concurrent_requests = 0
+
+import time as _time_module
+import functools as _functools
+
+
+def _log_request(func):
+    """请求日志装饰器：记录调用、耗时、并发数。"""
+    @_functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        global _concurrent_requests
+        _concurrent_requests += 1
+        t0 = _time_module.monotonic()
+        try:
+            return func(*args, **kwargs)
+        except Exception:
+            logger.exception("Tool %s failed", func.__name__)
+            raise
+        finally:
+            _concurrent_requests -= 1
+            elapsed = (_time_module.monotonic() - t0) * 1000
+            if elapsed > 1000:  # 超过 1 秒才打 WARNING
+                logger.warning(
+                    "Slow request: %s took %.0fms (concurrent=%d)",
+                    func.__name__, elapsed, _concurrent_requests,
+                )
+    return wrapper
+
+
+def _rate_limit():
+    """请求限流入口。阻塞直到有可用槽位，超时 30 秒抛异常。"""
+    acquired = _request_semaphore.acquire(timeout=30)
+    if not acquired:
+        raise RuntimeError("服务繁忙，请求被限流（并发 > 50）")
+    # 调用方负责在 finally 中 release()
+
+
 mcp = FastMCP(MCP_SERVER_NAME)
 
 # ---------------------------------------------------------------------------
@@ -304,22 +346,24 @@ def memory_tree_ingest(
     try:
         doc_text = f"{title}\n{content[:8000]}"
         vector = _embed_text(doc_text)
-        index = _get_faiss_index()
+        
+        with _faiss_write_lock:
+            index = _get_faiss_index()
 
-        if hasattr(index, "is_trained") and not index.is_trained:
-            logger.info("Index not trained, upgrading to Flat index")
-            index = faiss.IndexIDMap(faiss.IndexFlatL2(VECTOR_DIM))
-            _faiss_index = index
+            if hasattr(index, "is_trained") and not index.is_trained:
+                logger.info("Index not trained, upgrading to Flat index")
+                index = faiss.IndexIDMap(faiss.IndexFlatL2(VECTOR_DIM))
+                _faiss_index = index
 
-        fid = _next_faiss_id
-        index.add_with_ids(
-            vector.reshape(1, -1).astype("float32"),
-            np.array([fid], dtype=np.int64),
-        )
-        _faiss_id_map[fid] = chunk_id
-        _next_faiss_id = fid + 1
+            fid = _next_faiss_id
+            index.add_with_ids(
+                vector.reshape(1, -1).astype("float32"),
+                np.array([fid], dtype=np.int64),
+            )
+            _faiss_id_map[fid] = chunk_id
+            _next_faiss_id = fid + 1
 
-        faiss.write_index(index, str(FAISS_INDEX_PATH))
+            faiss.write_index(index, str(FAISS_INDEX_PATH))
 
         # 同步更新数据库中的 faiss_id 和 vector（新连接，保证事务独立）
         with _get_conn() as conn:
@@ -560,10 +604,10 @@ def memory_tree_reindex() -> dict:
             vec_array = np.array(vectors).astype('float32')
             if needs_train:
                 index.train(vec_array)
-            index.add_with_ids(vec_array, np.array(ids, dtype=np.int64))
-
-            # 保存索引
-            faiss.write_index(index, str(FAISS_INDEX_PATH))
+            
+            with _faiss_write_lock:
+                index.add_with_ids(vec_array, np.array(ids, dtype=np.int64))
+                faiss.write_index(index, str(FAISS_INDEX_PATH))
 
             # 保存向量和 faiss_id 到 SQLite（使用独立连接）
             standalone_conn2 = sqlite3.connect(str(DB_PATH), timeout=10)
@@ -1211,7 +1255,7 @@ def graph_query(entity_name: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool
-def memory_search(query: str, layers: str = "all", max_results: int = 20) -> dict:
+def memory_search(query: str, layers: str = "all", max_results: int = 20, timeout: float = 30.0) -> dict:
     """
     跨四层综合检索。
     输入用户的自然语言问题，返回所有相关记忆。
@@ -1220,26 +1264,52 @@ def memory_search(query: str, layers: str = "all", max_results: int = 20) -> dic
     应该先调用此工具获取上下文。
 
     layers 可选值：all | memory_tree | preferences | errors | graph
+    timeout: 单层最大等待秒数（默认 30 秒）
 
     调用时机（每次对话开始时建议调用）：
     - 用户提到具体的客户名、项目名、部门名
     - 任务涉及财务数据、分析、报告
     - 需要了解企业政策或制度时
     """
+    import concurrent.futures
+
     results: dict[str, list] = {}
 
-    if layers in ("all", "memory_tree"):
-        # 优先向量语义搜索，失败时自动降级为关键词搜索
-        results["memory_tree"] = memory_tree_vector_search(query, max_results=max_results // 2)
+    def _safe_call(fn, *args, **kw):
+        try:
+            return fn(*args, **kw)
+        except Exception as e:
+            logger.warning("memory_search layer %s failed: %s", fn.__name__, e)
+            return []
 
-    if layers in ("all", "preferences"):
-        results["preferences"] = preference_search(query, max_results=max_results // 2)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {}
+        if layers in ("all", "memory_tree"):
+            futures["memory_tree"] = executor.submit(
+                memory_tree_vector_search, query, max_results=max_results // 2
+            )
+        if layers in ("all", "preferences"):
+            futures["preferences"] = executor.submit(
+                preference_search, query, max_results=max_results // 2
+            )
+        if layers in ("all", "errors"):
+            futures["errors"] = executor.submit(
+                error_check, task_description=query, max_results=max_results // 2
+            )
+        if layers in ("all", "graph"):
+            futures["graph"] = executor.submit(
+                entity_search, query, max_results=max_results // 2
+            )
 
-    if layers in ("all", "errors"):
-        results["errors"] = error_check(task_description=query, max_results=max_results // 2)
-
-    if layers in ("all", "graph"):
-        results["graph"] = entity_search(query, max_results=max_results // 2)
+        for key, future in futures.items():
+            try:
+                results[key] = future.result(timeout=timeout)
+            except concurrent.futures.TimeoutError:
+                logger.warning("memory_search layer %s timed out after %.0fs", key, timeout)
+                results[key] = []
+            except Exception as e:
+                logger.warning("memory_search layer %s failed: %s", key, e)
+                results[key] = []
 
     return results
 
@@ -1355,6 +1425,14 @@ if __name__ == "__main__":
         sys.exit(0)
     atexit.register(_release_lock)
     _init_db()
+    # 启动时校验配置
+    try:
+        from config import validate_config
+        validate_config()
+        logger.info("配置校验通过")
+    except Exception as e:
+        logger.error("配置校验失败: %s", e)
+        sys.exit(1)
     # 4GB 方案：添加 vector 列（如果不存在）
     try:
         with _get_conn() as conn:
@@ -1363,8 +1441,12 @@ if __name__ == "__main__":
             logger.info("Schema migration: added vector column")
     except Exception:
         pass  # 列已存在，忽略
+    # 启动指标持久化线程
+    from observability import start_metrics_persist_thread
+    start_metrics_persist_thread()
     # 启动 WAL checkpoint 后台线程
     _wal_thread = threading.Thread(target=_wal_checkpoint_loop, daemon=True)
     _wal_thread.start()
     logger.info("WAL checkpoint thread started (interval=%ds)", _WAL_CHECKPOINT_INTERVAL)
+    logger.info("Memory Engine v2.0.5 starting on %s:%d", "127.0.0.1", 8765)
     mcp.run(transport="streamable-http", host="127.0.0.1", port=8765)

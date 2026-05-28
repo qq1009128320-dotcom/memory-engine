@@ -2,28 +2,34 @@ version: "3.8"
 
 services:
   memory-engine:
-    image: python:3.11-slim
+    build: .
     container_name: memory-engine
     ports:
       - "8765:8765"
+    env_file:
+      - .env
     environment:
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - MEMORY_DB_PATH=/data/memory.db
       - FAISS_INDEX_PATH=/data/faiss.index
-      - LLM_MODEL=deepseek-chat
       - LOG_LEVEL=INFO
+      - LOG_FILE=/data/memory-engine.log
     volumes:
       - memory_data:/data
-      - .:/app
-    working_dir: /app
-    command: >
-      sh -c "pip install -r requirements.txt -q && python3 memory_server.py"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python3", "-c", "from memory_server import memory_stats; memory_stats()"]
+      test: ["CMD", "python3", "-c", "from memory_server import memory_health; assert memory_health()['status'] == 'healthy'"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+          cpus: "0.5"
 
 volumes:
   memory_data:

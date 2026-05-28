@@ -70,7 +70,7 @@ class TestDefaultValues:
         import importlib
         importlib.reload(config)
 
-        assert config.LLM_TIMEOUT == 60
+        assert config.LLM_TIMEOUT == 30
 
     def test_default_mcp_server_name(self, monkeypatch):
         """Default MCP server name."""
