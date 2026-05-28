@@ -26,7 +26,7 @@ def validate_length(value: str, name: str, max_len: int = 50000) -> str:
 def validate_enum(value: str, name: str, allowed: list[str]) -> str:
     """确保值在允许范围内。"""
     if value not in allowed:
-        raise ValidationError(f"{name} 必须在 {allowed} 中，收到: {value}")
+        raise ValidationError(f"{name} 必须在 {allowed} 中，收到: {value!r}")
     return value
 
 
@@ -37,11 +37,21 @@ def validate_int_range(value: int, name: str, min_val: int = 1, max_val: int = 1
     return value
 
 
+def validate_scope(value: str) -> str:
+    """支持 personal | team | team:xxx | organization 格式。"""
+    if value in ALLOWED_SCOPES:
+        return value
+    if value.startswith("team:"):
+        return value
+    raise ValidationError(f"scope 格式无效: {value!r}，允许: {ALLOWED_SCOPES} 或 'team:<部门>'")
+
+
 # 预定义允许值
-ALLOWED_CATEGORIES = ["field_alias", "date_rule", "naming", "policy", "format"]
-ALLOWED_SEVERITIES = ["minor", "major", "critical"]
+ALLOWED_CATEGORIES     = ["field_alias", "date_rule", "naming", "policy", "format"]
+ALLOWED_SEVERITIES     = ["minor", "major", "critical"]
 ALLOWED_ERROR_CATEGORIES = ["field_selection", "logic_error", "scope_error", "omission"]
-ALLOWED_ENTITY_TYPES = ["person", "department", "client", "policy", "document", "field", "project"]
-ALLOWED_SCOPES = ["personal", "team", "organization"]
-ALLOWED_RELATIONS = ["belongs_to", "manages", "alias_of", "depends_on", "owns", "approves", "works_in"]
-ALLOWED_SOURCE_TYPES = ["manual", "extracted", "corrected"]
+ALLOWED_ENTITY_TYPES   = ["person", "department", "client", "policy", "document", "field", "project"]
+ALLOWED_SCOPES         = ["personal", "team", "organization"]
+ALLOWED_RELATIONS      = ["belongs_to", "manages", "alias_of", "depends_on", "owns", "approves", "works_in"]
+# 新增 auto_fetch / feishu，兼容飞书同步场景
+ALLOWED_SOURCE_TYPES   = ["manual", "extracted", "corrected", "auto_fetch", "feishu"]

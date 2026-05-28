@@ -23,8 +23,10 @@ def _now() -> str:
 
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(DB_PATH), timeout=15)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=10000")
     return conn
 
 
@@ -118,7 +120,11 @@ def build_summary_tree(rebuild: bool = False) -> dict:
     """构建 L0/L1 层级摘要树。"""
     with _get_conn() as conn:
         # 获取所有未分组的 chunk（parent_id 为 NULL）
-        where = "" if rebuild else "WHERE parent_id IS NULL AND (summary IS NULL OR summary = '')"
+        # 排除已经是摘要节点本身（source_type='summary'），避免摘要的摘要
+        if rebuild:
+            where = "WHERE source_type != 'summary'"
+        else:
+            where = "WHERE source_type != 'summary' AND parent_id IS NULL AND (summary IS NULL OR summary = '')"
         chunks = conn.execute(
             f"SELECT id, source_type, title, content FROM memory_tree_chunks {where} ORDER BY source_type, title"
         ).fetchall()

@@ -33,7 +33,7 @@ logger = logging.getLogger("memory_engine")
 
 # 参数校验
 from validators import (
-    validate_not_empty, validate_enum, validate_int_range,
+    validate_not_empty, validate_enum, validate_int_range, validate_scope,
     ALLOWED_CATEGORIES, ALLOWED_SEVERITIES, ALLOWED_ERROR_CATEGORIES,
     ALLOWED_ENTITY_TYPES, ALLOWED_SCOPES, ALLOWED_SOURCE_TYPES, ALLOWED_RELATIONS,
 )
@@ -61,9 +61,10 @@ def _acquire_lock() -> bool:
             os.kill(old_pid, 0)  # 信号 0 只检查进程是否存在
             # 进程还在运行 —— 锁被持有
             return False
-        except (ValueError, ProcessLookupError):
-            # PID 无效或进程已死 —— 过期锁，可以抢占
+        except (ValueError, ProcessLookupError, OSError):
+            # PID 无效或进程已死（OSError 覆盖 Windows 等平台）—— 过期锁，可以抢占
             pass
+
     # 写入当前 PID
     PID_FILE.write_text(str(os.getpid()))
     return True
@@ -127,6 +128,15 @@ def _init_db() -> None:
         schema_sql = f.read()
     with _get_conn() as conn:
         conn.executescript(schema_sql)
+        # 持久化性能优化配置
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA cache_size=-128000")  # 128MB 缓存
+        conn.execute("PRAGMA temp_store=MEMORY")
+        conn.execute("PRAGMA mmap_size=134217728")   # 128MB 内存映射
+        conn.execute("PRAGMA busy_timeout=10000")   # 10s 超时
+        conn.execute("PRAGMA page_size=4096")        # 4KB 页
         conn.commit()
 
 
@@ -149,32 +159,37 @@ VECTOR_DIM = 384  # all-MiniLM-L6-v2 维度
 
 def _get_faiss_index() -> faiss.Index:
     """Lazy-load FAISS index from disk.
-
     IVF400 with L2 distance. Supports ~500万 vectors in 4GB RAM.
+    使用数据库中存储的 faiss_id 字段重建 id_map，而非靠 ROWID 顺序推断。
     """
     global _faiss_index, _faiss_id_map, _next_faiss_id
+
     if _faiss_index is None:
         if FAISS_INDEX_PATH.exists():
             logger.info("Loading FAISS index from %s", FAISS_INDEX_PATH)
             _faiss_index = faiss.read_index(str(FAISS_INDEX_PATH))
-            # Rebuild id_map from SQLite
+
+            # 用数据库中的 faiss_id 字段重建 id_map（精确，不依赖 ROWID 顺序）
             _faiss_id_map = {}
             _next_faiss_id = 0
             with _get_conn() as conn:
                 rows = conn.execute(
-                    "SELECT id, vector FROM memory_tree_chunks WHERE vector IS NOT NULL ORDER BY ROWID"
+                    "SELECT id, faiss_id FROM memory_tree_chunks "
+                    "WHERE faiss_id >= 0 ORDER BY faiss_id"
                 ).fetchall()
-                for idx, row in enumerate(rows):
-                    if row["vector"]:
-                        _faiss_id_map[idx] = row["id"]
-                        _next_faiss_id = idx + 1
+                for row in rows:
+                    fid = row["faiss_id"]
+                    _faiss_id_map[fid] = row["id"]
+                    if fid >= _next_faiss_id:
+                        _next_faiss_id = fid + 1
+
             logger.info("FAISS index loaded: %d vectors", len(_faiss_id_map))
         else:
-            logger.info("Creating new FAISS index (IVF, L2)")
-            # 用临时 Flat 索引兜底，reindex 时再重建
+            logger.info("Creating new FAISS index (Flat, L2)")
             _faiss_index = faiss.IndexIDMap(faiss.IndexFlatL2(VECTOR_DIM))
             _faiss_id_map = {}
             _next_faiss_id = 0
+
     return _faiss_index
 
 
@@ -235,41 +250,44 @@ def memory_tree_ingest(
     """
     content_hash = _sha256(content)
     chunk_id = str(uuid.uuid4())
+
     global _faiss_index, _faiss_id_map, _next_faiss_id
 
-    # 去重检查
+    # ── 去重检查 ──────────────────────────────────────────────
     with _get_conn() as conn:
         existing = conn.execute(
             "SELECT id FROM memory_tree_chunks WHERE content_hash = ?",
             (content_hash,),
         ).fetchone()
+
         if existing:
-            # 更新检索计数和新鲜度
+            # 更新 ingest_count（不是 retrieval_count）和新鲜度
             conn.execute(
-                "UPDATE memory_tree_chunks SET retrieval_count = retrieval_count + 1, "
+                "UPDATE memory_tree_chunks SET ingest_count = ingest_count + 1, "
                 "freshness_score = 1.0, updated_at = ? WHERE id = ?",
-                (_now(), existing[0]),
+                (_now(), existing["id"]),
             )
             conn.commit()
             return {
                 "status": "duplicate",
                 "message": "内容已存在，已更新新鲜度",
-                "existing_id": existing[0],
+                "existing_id": existing["id"],
             }
 
-        # 计算摘要（如果启用）
-        summary = ""
-        if generate_summary:
-            summary = content[:200] + "..." if len(content) > 200 else content
+    # ── 计算摘要（可选）────────────────────────────────────────
+    summary = ""
+    if generate_summary:
+        summary = content[:200] + "..." if len(content) > 200 else content
 
-        # 估算实体数量（简单的关键词计数）
-        entity_count = content.count("客户") + content.count("部门") + content.count("项目")
+    entity_count = content.count("客户") + content.count("部门") + content.count("项目")
 
+    # ── 先插入数据库行（faiss_id 暂设 -1）─────────────────────
+    with _get_conn() as conn:
         conn.execute(
             """INSERT INTO memory_tree_chunks
                (id, source, source_type, title, content, content_hash,
-                parent_id, summary, score, entity_count, metadata)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, ?, ?)""",
+                parent_id, summary, score, entity_count, metadata, faiss_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, ?, ?, -1)""",
             (
                 chunk_id, source, source_type, title, content, content_hash,
                 parent_id or None, summary, entity_count, metadata,
@@ -277,41 +295,40 @@ def memory_tree_ingest(
         )
         conn.commit()
 
-        # 写入后清空搜索缓存，保证下次搜索能查到新数据
-        _search_cache.clear()
+    # 清空搜索缓存
+    _search_cache.clear()
 
-        # 生成向量并写入 FAISS
-        try:
-            doc_text = f"{title}\n{content[:8000]}"
-            vector = _embed_text(doc_text)
-            index = _get_faiss_index()
+    # ── 生成向量并写入 FAISS ───────────────────────────────────
+    try:
+        doc_text = f"{title}\n{content[:8000]}"
+        vector = _embed_text(doc_text)
+        index = _get_faiss_index()
 
-            # 如果 index 还没训练（IVF），用 IndexIDMap 兜底
-            if hasattr(index, 'is_trained') and not index.is_trained:
-                logger.info("Index not trained, upgrading to Flat index")
-                index = faiss.IndexIDMap(faiss.IndexFlatL2(VECTOR_DIM))
-                _faiss_index = index
+        if hasattr(index, "is_trained") and not index.is_trained:
+            logger.info("Index not trained, upgrading to Flat index")
+            index = faiss.IndexIDMap(faiss.IndexFlatL2(VECTOR_DIM))
+            _faiss_index = index
 
-            # 添加向量
-            fid = _next_faiss_id
-            index.add_with_ids(
-                vector.reshape(1, -1).astype('float32'),
-                np.array([fid], dtype=np.int64)
-            )
-            _faiss_id_map[fid] = chunk_id
-            _next_faiss_id = fid + 1
+        fid = _next_faiss_id
+        index.add_with_ids(
+            vector.reshape(1, -1).astype("float32"),
+            np.array([fid], dtype=np.int64),
+        )
+        _faiss_id_map[fid] = chunk_id
+        _next_faiss_id = fid + 1
 
-            # 持久化
-            faiss.write_index(index, str(FAISS_INDEX_PATH))
+        faiss.write_index(index, str(FAISS_INDEX_PATH))
 
-            # 同时存入 SQLite vector BLOB
+        # 同步更新数据库中的 faiss_id 和 vector（新连接，保证事务独立）
+        with _get_conn() as conn:
             conn.execute(
-                "UPDATE memory_tree_chunks SET vector = ? WHERE id = ?",
-                (vector.tobytes(), chunk_id),
+                "UPDATE memory_tree_chunks SET faiss_id = ?, vector = ? WHERE id = ?",
+                (fid, vector.tobytes(), chunk_id),
             )
             conn.commit()
-        except Exception as e:
-            logger.warning("FAISS indexing failed: %s", e)
+
+    except Exception as e:
+        logger.warning("FAISS indexing failed: %s", e)
 
     return {
         "status": "ingested",
@@ -432,15 +449,30 @@ def memory_tree_vector_search(
     )
 
     items: list[dict] = []
+    # 批量获取所有候选chunk_id
+    candidate_ids = [_faiss_id_map[fid] for fid in indices[0] 
+                     if fid >= 0 and fid in _faiss_id_map]
+    
     with _get_conn() as conn:
+        if not candidate_ids:
+            return []
+        
+        # 批量查询，避免循环内单条查询
+        placeholders = ','.join('?' * len(candidate_ids))
+        rows = conn.execute(
+            f"SELECT id, source, source_type, title, summary, score "
+            f"FROM memory_tree_chunks WHERE id IN ({placeholders})",
+            candidate_ids
+        ).fetchall()
+        
+        # 构建id到row的映射
+        row_map = {row["id"]: row for row in rows}
+        
         for dist, fid in zip(distances[0], indices[0]):
             if fid < 0 or fid not in _faiss_id_map:
                 continue
             chunk_id = _faiss_id_map[fid]
-            row = conn.execute(
-                "SELECT id, source, source_type, title, summary, score FROM memory_tree_chunks WHERE id = ?",
-                (chunk_id,),
-            ).fetchone()
+            row = row_map.get(chunk_id)
             if row:
                 items.append({
                     "id": row["id"],
@@ -531,13 +563,13 @@ def memory_tree_reindex() -> dict:
             # 保存索引
             faiss.write_index(index, str(FAISS_INDEX_PATH))
 
-            # 保存向量到 SQLite（使用独立连接）
+            # 保存向量和 faiss_id 到 SQLite（使用独立连接）
             standalone_conn2 = sqlite3.connect(str(DB_PATH), timeout=10)
             try:
-                for vec, bid in zip(vectors, id_map.values()):
+                for fid, (vec, bid) in enumerate(zip(vectors, id_map.values())):
                     standalone_conn2.execute(
-                        "UPDATE memory_tree_chunks SET vector = ? WHERE id = ?",
-                        (vec.tobytes(), bid),
+                        "UPDATE memory_tree_chunks SET vector = ?, faiss_id = ? WHERE id = ?",
+                        (vec.tobytes(), ids[fid], bid),
                     )
                 standalone_conn2.commit()
             finally:
@@ -554,7 +586,7 @@ def memory_tree_reindex() -> dict:
         return {"status": "ok", "indexed": total}
 
     except Exception as e:
-        logger.error("memory_tree_reindex failed: %s", exc_info=True)
+        logger.error("memory_tree_reindex failed: %s", e, exc_info=True)
         return {"status": "error", "message": str(e)}
 
 
@@ -864,14 +896,21 @@ def error_log(
 
             # 如果累计 3 次以上，自动升级为偏好记忆
             if new_count >= 3:
-                # 创建对应的偏好规则
+                # 根据错误类型映射到合适的偏好分类
+                _error_to_pref_category = {
+                    "field_selection": "field_alias",
+                    "logic_error":     "policy",
+                    "scope_error":     "date_rule",
+                    "omission":        "policy",
+                }
+                pref_category = _error_to_pref_category.get(error_category, "policy")
                 rule_hash = _sha256(f"prevent:{task_type}|{correction}")
                 pref_id = str(uuid.uuid4())
                 conn.execute(
                     """INSERT OR IGNORE INTO preference_memory
                        (id, category, condition, rule, rule_hash, source_type, confidence, scope)
-                       VALUES (?, 'field_alias', ?, ?, ?, 'extracted', 0.9, 'personal')""",
-                    (pref_id, f"任务类型={task_type}", correction, rule_hash),
+                       VALUES (?, ?, ?, ?, ?, 'extracted', 0.9, 'personal')""",
+                    (pref_id, pref_category, f"任务类型={task_type}", correction, rule_hash),
                 )
                 conn.execute(
                     "UPDATE error_memory SET is_resolved = 1, resolved_to = ? WHERE id = ?",
@@ -981,9 +1020,10 @@ def entity_add(
         ).fetchone()
 
         if existing:
+            existing_id = existing["id"]
             # 合并别名
             current = conn.execute(
-                "SELECT aliases FROM entities WHERE id = ?", (existing[0],)
+                "SELECT aliases FROM entities WHERE id = ?", (existing_id,)
             ).fetchone()
             try:
                 current_aliases = json.loads(current["aliases"]) if current and current["aliases"] else []
@@ -994,10 +1034,10 @@ def entity_add(
 
             conn.execute(
                 "UPDATE entities SET aliases = ?, updated_at = ? WHERE id = ?",
-                (json.dumps(merged, ensure_ascii=False), _now(), existing[0]),
+                (json.dumps(merged, ensure_ascii=False), _now(), existing_id),
             )
             conn.commit()
-            return {"status": "merged", "id": existing[0], "aliases": merged}
+            return {"status": "merged", "id": existing_id, "aliases": merged}
 
         conn.execute(
             """INSERT INTO entities (id, type, name, aliases, properties, scope, department)
@@ -1077,7 +1117,7 @@ def entity_link(
             src_id = str(uuid.uuid4())
             conn.execute(
                 "INSERT INTO entities (id, type, name, scope) VALUES (?, ?, ?, ?)",
-                (src_id, source_type or "unknown", source_name, scope),
+                (src_id, source_type or "document", source_name, scope),
             )
         else:
             src_id = src[0]
@@ -1092,7 +1132,7 @@ def entity_link(
             tgt_id = str(uuid.uuid4())
             conn.execute(
                 "INSERT INTO entities (id, type, name, scope) VALUES (?, ?, ?, ?)",
-                (tgt_id, target_type or "unknown", target_name, scope),
+                (tgt_id, target_type or "document", target_name, scope),
             )
         else:
             tgt_id = tgt[0]

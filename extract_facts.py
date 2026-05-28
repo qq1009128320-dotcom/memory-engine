@@ -193,7 +193,7 @@ def to_mcp_calls(extracted: dict) -> list[dict[str, Any]]:
         calls.append({
             "tool": "entity_add",
             "arguments": {
-                "type": ent.get("type", "unknown"),
+                "type": ent.get("type", "document"),   # 默认 document，在允许列表中
                 "name": ent.get("name", ""),
                 "aliases": json.dumps(ent.get("aliases", []), ensure_ascii=False),
                 "properties": json.dumps(ent.get("properties", {}), ensure_ascii=False),
