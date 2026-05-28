@@ -57,30 +57,15 @@ SUMMARIZE_L0_PROMPT = """你是一个企业知识系统。以下是多个主题�
 输出纯文本(不要 markdown):"""
 
 
-def call_llm(prompt: str, max_tokens: int = 1024) -> str:
-    if not LLM_API_KEY:
-        raise RuntimeError("DEEPSEEK_API_KEY 未设置")
-
-    import httpx
-    response = httpx.post(
-        f"{LLM_BASE_URL}/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {LLM_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": LLM_MODEL,
-            "messages": [
-                {"role": "system", "content": "你是一个精确的知识摘要器。只输出摘要文本。"},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.3,
-            "max_tokens": max_tokens,
-        },
-        timeout=LLM_TIMEOUT,
+def _llm_summarize(prompt: str, max_tokens: int = 1024) -> str:
+    """Call LLM for summarization (thin wrapper around shared client)."""
+    from llm_client import call_llm
+    return call_llm(
+        prompt,
+        system_prompt="你是一个精确的知识摘要器。只输出摘要文本。",
+        max_tokens=max_tokens,
+        temperature=0.3,
     )
-    response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"].strip()
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +135,7 @@ def build_summary_tree(rebuild: bool = False) -> dict:
             )
 
             try:
-                l1_summary = call_llm(
+                l1_summary = _llm_summarize(
                     SUMMARIZE_L1_PROMPT.format(docs=docs_text), max_tokens=800
                 )
             except Exception as e:
@@ -176,7 +161,7 @@ def build_summary_tree(rebuild: bool = False) -> dict:
         )
 
         try:
-            l0_summary = call_llm(
+            l0_summary = _llm_summarize(
                 SUMMARIZE_L0_PROMPT.format(summaries=all_l1_text), max_tokens=400
             )
         except Exception as e:

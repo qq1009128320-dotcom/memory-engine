@@ -1,0 +1,46 @@
+name: Bug Report
+description: Report a bug in Memory Engine
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report!
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Which version are you running? (`python3 -c "from config import ROOT; print((ROOT/'SKILL.md').read_text().split('version:')[1].split()[0])"`)
+      placeholder: "2.1.1"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal code or commands to reproduce
+      render: python
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log output (redact sensitive info)
+      render: text
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Linux
+        - macOS
+        - WSL2
+        - Other
+    validations:
+      required: true
