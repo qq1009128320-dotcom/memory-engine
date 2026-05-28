@@ -18,48 +18,27 @@ os.environ.setdefault("FAISS_INDEX_PATH", "/tmp/test_faiss.index")
 
 
 @pytest.fixture
-def engine():
-    """完整的记忆引擎环境。"""
+def engine(monkeypatch, tmp_path):
+    """完整的记忆引擎环境（FAISS）。"""
     import sqlite3
-    from unittest.mock import patch, MagicMock
-    import chromadb
+    import importlib
 
-    fd, db_path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    os.environ["MEMORY_DB_PATH"] = db_path
-    os.environ["CHROMADB_PATH"] = str(Path(db_path).parent / "int_chromadb")
+    db_path = tmp_path / "int_test.db"
+    os.environ["MEMORY_DB_PATH"] = str(db_path)
+    os.environ["FAISS_INDEX_PATH"] = str(tmp_path / "test.index")
 
-    # 初始化 schema
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(str(db_path))
     conn.executescript(open(PROJECT_ROOT / "schema.sql").read())
     conn.commit()
     conn.close()
 
-    # Mock ChromaDB
-    mock_col = MagicMock()
-    mock_col.count.return_value = 0
-    mock_col.get.return_value = {"ids": [], "documents": []}
-    mock_client = MagicMock()
-    mock_client.get_or_create_collection.return_value = mock_col
-
-    import chromadb as cd
-    import importlib
     import config
-
+    monkeypatch.setattr(config, "DB_PATH", db_path)
     importlib.reload(config)
 
-    with patch.object(cd, "PersistentClient", return_value=mock_client):
-        import importlib, memory_server
-
-        importlib.reload(memory_server)
-        yield memory_server
-
-    os.unlink(db_path)
-    import shutil
-
-    cd_path = Path(db_path).parent / "int_chromadb"
-    if cd_path.exists():
-        shutil.rmtree(cd_path, ignore_errors=True)
+    import memory_server
+    importlib.reload(memory_server)
+    yield memory_server
 
 
 class TestFullMemoryFlow:

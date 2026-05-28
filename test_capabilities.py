@@ -165,7 +165,6 @@ for k, v in stats.items():
 print(f"\n  Health:")
 h = memory_health()
 print(f"    status: {h.get('status', '?')}")
-print(f"    db_ok: {h.get('db_ok', '?')}")
-print(f"    chroma_ok: {h.get('chroma_ok', '?')}")
+print(f"    db_ok: {h.get('database', '?')}")
 
 print(f"\n{SEP}\n全部 10 项测试完成\n{SEP}")

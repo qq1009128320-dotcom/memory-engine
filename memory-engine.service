@@ -1,3 +1,4 @@
+# Create user: sudo useradd -r -s /bin/false memory
 [Unit]
 Description=记忆引擎 MCP Server (Memory Engine)
 Documentation=https://github.com/qq1009128320-dotcom/memory-engine

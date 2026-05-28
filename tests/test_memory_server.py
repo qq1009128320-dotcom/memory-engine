@@ -54,25 +54,15 @@ def test_db():
 
 @pytest.fixture
 def server(test_db):
-    """导入 memory_server 模块（处理 ChromaDB 副作用）。"""
-    import chromadb
-    from unittest.mock import patch, MagicMock
+    """导入 memory_server 模块。"""
     import importlib
 
-    # Reload config to pick up new env vars
     import config
     importlib.reload(config)
 
-    mock_collection = MagicMock()
-    mock_collection.count.return_value = 0
-    mock_collection.get.return_value = {"ids": [], "documents": []}
-    mock_client = MagicMock()
-    mock_client.get_or_create_collection.return_value = mock_collection
-
-    with patch.object(chromadb, "PersistentClient", return_value=mock_client):
-        import memory_server
-        importlib.reload(memory_server)
-        return memory_server
+    import memory_server
+    importlib.reload(memory_server)
+    return memory_server
 
 
 class TestMemoryTree:

@@ -62,7 +62,7 @@ class TestDefaultValues:
         assert config.MAX_MEMORY_ROWS == 100
 
     def test_default_llm_timeout(self, monkeypatch):
-        """Default LLM_TIMEOUT is 60."""
+        """Default LLM_TIMEOUT is 30."""
         monkeypatch.delenv("LLM_TIMEOUT", raising=False)
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
 

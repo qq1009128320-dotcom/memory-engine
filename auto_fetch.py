@@ -140,8 +140,9 @@ def sync_feishu() -> dict[str, int]:
         )
         if result.returncode == 0:
             try:
-                docs = json.loads(result.stdout)
-                for doc in docs if isinstance(docs, list) else docs.get("items", []):
+                docs_raw = json.loads(result.stdout)
+                docs = docs_raw if isinstance(docs_raw, list) else docs_raw.get("items", [])
+                for doc in docs:
                     doc_id = doc.get("id") or doc.get("document_id", "")
                     title = doc.get("title") or doc.get("name", "未命名文档")
                     if doc_id:
