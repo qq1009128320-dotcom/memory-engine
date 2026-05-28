@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-@pytest.fixture(autouse=True, scope="session")
+@pytest.fixture(autouse=True, scope="function")
 def _setup_env():
     """Set environment variables for the entire test session."""
     os.environ["DEEPSEEK_API_KEY"] = "test-key"

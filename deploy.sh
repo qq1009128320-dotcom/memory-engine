@@ -2,10 +2,13 @@
 # 记忆引擎一键部署脚本
 # 适用于轻量级部署（FAISS + SQLite）
 
-set -e
+set -euo pipefail
+
+# 版本常量（单一来源）
+VERSION="2.1.0"
 
 echo "========================================"
-echo "  记忆引擎 v2.0.5 一键部署"
+echo "  记忆引擎 ${VERSION} 一键部署"
 echo "  FAISS + SQLite 轻量级架构"
 echo "========================================"
 echo ""
@@ -53,13 +56,17 @@ echo "✅ 数据库检查完成"
 echo ""
 echo "[5/6] 重建 FAISS 索引..."
 if [ -f "faiss.index" ]; then
-    python3 -c "
+    if python3 -c "
 import os
 os.environ.setdefault('DEEPSEEK_API_KEY', 'deploy-check')
 from memory_server import memory_tree_reindex
 result = memory_tree_reindex()
 print(f'索引重建: {result}')
-" || echo "⚠️ 索引重建跳过（可能已有有效索引）"
+" 2>/dev/null; then
+        echo "✅ FAISS 索引重建完成"
+    else
+        echo "⚠️ 索引重建跳过（可能已有有效索引或无数据）"
+    fi
 else
     echo "✅ 无旧索引，跳过重建"
 fi

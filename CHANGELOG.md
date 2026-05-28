@@ -6,7 +6,27 @@
 
 ---
 
-## [v1.2.0] - 当前版本
+## [v2.1.0] - 当前版本
+
+### 新增
+- **FAISS 写入失败自动回滚**：memory_tree_ingest 在 FAISS 索引失败时自动删除数据库行，保持数据一致性
+- **嵌入调用超时保护**：_embed_text 和 _embed_texts 添加 timeout 参数，防止嵌入模型挂起
+- **schema.sql 时间字段索引**：为所有表的 created_at/updated_at 字段添加索引，提升时间范围查询性能
+- **部署脚本版本常量**：deploy.sh 使用 VERSION 常量统一管理版本号
+
+### 修复
+- **测试隔离**：conftest.py _setup_env fixture 从 session-scope 改为 function-scope，防止测试间状态泄露
+- **test_config 脆弱断言**：LLM_TIMEOUT 从精确等于 30 改为范围检查（10-120 秒）
+- **部署脚本错误处理**：set -euo pipefail + 改进 FAISS 重建错误处理逻辑
+
+### 优化
+- **pyproject.toml 完整化**：添加 [project]、[build-system]、[tool.ruff]、[tool.mypy] 完整配置
+- **Dockerfile 简化**：移除 uv 依赖声明，使用标准 pip install
+- **README 去重**：移除重复的"项目结构"段落，版本统一为 v2.1.0
+
+---
+
+## [v2.0.5] - 上一版本
 
 ### 新增
 - 统一配置管理：通过 `config.py` 集中管理所有配置项，支持环境变量覆盖

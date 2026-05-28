@@ -21,7 +21,7 @@
 || L3 | 纠错记忆 | 记住错误，≥3次自动升级为永久规则 | 独创 |
 || L4 | 知识图谱 | 实体关系 + 三级权限共享 | Zep |
 
-**当前版本：v2.0.5** | **FAISS 索引数：57** | **嵌入模型：all-MiniLM-L6-v2（384维）** | **FAISS 向量索引**
+**当前版本：v2.1.0** | **FAISS 索引数：57** | **嵌入模型：all-MiniLM-L6-v2（384维）** | **FAISS 向量索引**
 
 ## 环境要求
 
@@ -61,7 +61,7 @@ python3 memory_server.py
 | `DEEPSEEK_BASE_URL` | DeepSeek API 地址 | `https://api.deepseek.com` |
 | `LLM_MODEL` | 使用的 LLM 模型 | `deepseek-chat` |
 | `LLM_MAX_TOKENS` | LLM 最大输出 token | `2048` |
-| `LLM_TIMEOUT` | LLM 请求超时（秒） | `60` |
+| `LLM_TIMEOUT` | LLM 请求超时（秒） | `30` |
 || `ENTERPRISE_MEMORY_DB` / `MEMORY_DB_PATH` | SQLite 数据库路径 | `./memory.db` |
 || `FAISS_INDEX_PATH` | FAISS 向量索引路径 | `./faiss.index` |
 || `EMBEDDING_MODEL` | 嵌入模型名称 | `all-MiniLM-L6-v2` |
@@ -206,32 +206,6 @@ chmod +x deploy.sh
 4. ✅ 初始化数据库
 5. ✅ 重建 FAISS 索引
 6. ✅ 验证安装
-
-## 项目结构
-
-```
-├── memory_server.py        # MCP Server 主程序（23个工具）
-├── SKILL.md                # Hermes Agent 技能文件（含44个触发词）
-├── schema.sql              # 数据库 Schema（6张表）
-├── run_extraction.py       # 端到端事实提取
-├── extract_facts.py        # LLM 提示词模板 + 解析
-├── summary_tree.py         # 层级摘要树生成
-├── auto_fetch.py           # 飞书数据自动同步
-├── observability.py        # 可观测性 + 性能指标
-├── validators.py           # 参数校验
-├── config.py               # 统一配置（.env 覆盖）
-├── log_utils.py            # 日志工具
-├── setup.sh                # 安装脚本
-├── deploy.sh               # 一键部署脚本
-├── requirements.txt        # Python 依赖
-├── memory-engine.service   # systemd 服务单元
-├── CHANGELOG.md            # 变更记录
-├── CONTRIBUTING.md         # 贡献指南
-├── .env.example            # 环境变量模板
-|── memory.db               # SQLite 数据库（含演示数据）
-|── faiss.index             # FAISS 向量索引
-|── logs/                   # 服务日志
-```
 
 ## 技术栈
 

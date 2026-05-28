@@ -36,6 +36,9 @@ Thumbs.db
 memory.db
 .memory_server.pid
 
+# Metrics
+.metrics.json
+
 # Backups
 backup_*/
 audit_report*.json
