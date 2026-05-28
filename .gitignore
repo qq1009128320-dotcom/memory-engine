@@ -38,3 +38,5 @@ memory.db
 
 # Backups
 backup_*/
+audit_report*.json
+audit_report_*.md

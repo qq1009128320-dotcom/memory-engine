@@ -20,6 +20,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 os.environ.setdefault("DEEPSEEK_API_KEY", "test-key")
 os.environ.setdefault("MEMORY_DB_PATH", "")
 os.environ.setdefault("CHROMADB_PATH", "")
+os.environ.setdefault("FAISS_INDEX_PATH", "/tmp/test_faiss.index")
 
 
 @pytest.fixture
