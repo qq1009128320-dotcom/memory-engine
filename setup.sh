@@ -28,7 +28,8 @@ import os
 os.environ['ENTERPRISE_MEMORY_DB'] = 'memory.db'
 from memory_server import memory_stats
 stats = memory_stats()
-print(f'  工具可用: 17 个')
+tool_count = sum(1 for name in dir(__import__('memory_server')) if name.startswith('memory_') or name.startswith('preference_') or name.startswith('error_') or name.startswith('entity_') or name.startswith('graph_'))
+print(f'  工具可用: {tool_count} 个')
 print(f'  表已就绪: memory_tree_chunks, preference_memory, error_memory, entities, relationships')
 "
 

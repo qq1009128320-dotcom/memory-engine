@@ -4,7 +4,6 @@
 
 import time
 import uuid
-import hashlib
 import threading
 import functools
 from typing import Any, Callable
@@ -73,35 +72,6 @@ class Metrics:
 
 
 metrics = Metrics()
-
-
-# ---------------------------------------------------------------------------
-# 嵌入缓存 — LRU 字典
-# ---------------------------------------------------------------------------
-class EmbeddingCache:
-    def __init__(self, max_size: int = 1000):
-        self._cache: dict[str, list[float]] = {}
-        self._max_size = max_size
-
-    def _key(self, text: str) -> str:
-        return hashlib.sha256(text.encode()).hexdigest()
-
-    def get(self, text: str) -> list[float] | None:
-        return self._cache.get(self._key(text))
-
-    def put(self, text: str, embedding: list[float]):
-        if len(self._cache) >= self._max_size:
-            # 简单策略：清一半
-            keys = list(self._cache.keys())[: self._max_size // 2]
-            for k in keys:
-                del self._cache[k]
-        self._cache[self._key(text)] = embedding
-
-    def size(self) -> int:
-        return len(self._cache)
-
-
-embedding_cache = EmbeddingCache()
 
 
 # ---------------------------------------------------------------------------

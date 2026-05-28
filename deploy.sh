@@ -5,7 +5,7 @@
 set -e
 
 echo "========================================"
-echo "  记忆引擎 v2.0.0 一键部署"
+echo "  记忆引擎 v2.0.3 一键部署"
 echo "  FAISS + SQLite 轻量级架构"
 echo "========================================"
 echo ""
@@ -38,17 +38,28 @@ pip install --upgrade pip -q
 pip install -r requirements.txt -q
 echo "✅ 依赖安装完成"
 
-# 4. 初始化数据库
+# 4. 运行迁移脚本（幂等，安全）
 echo ""
-echo "[4/6] 初始化数据库..."
-python3 -c "from memory_server import _init_db; _init_db()"
-echo "✅ 数据库初始化完成"
+echo "[4/6] 检查数据库迁移..."
+python3 -c "
+import os
+os.environ.setdefault('DEEPSEEK_API_KEY', 'deploy-check')
+from memory_server import _init_db
+_init_db()
+" 2>/dev/null || python3 migrate_add_faiss_id.py
+echo "✅ 数据库检查完成"
 
 # 5. 重建 FAISS 索引（如果存在旧数据）
 echo ""
 echo "[5/6] 重建 FAISS 索引..."
 if [ -f "faiss.index" ]; then
-    python3 -c "from memory_server import _rebuild_faiss_index; _rebuild_faiss_index()" 2>/dev/null || echo "⚠️ 索引重建跳过（可能已有有效索引）"
+    python3 -c "
+import os
+os.environ.setdefault('DEEPSEEK_API_KEY', 'deploy-check')
+from memory_server import memory_tree_reindex
+result = memory_tree_reindex()
+print(f'索引重建: {result}')
+" 2>/dev/null || echo "⚠️ 索引重建跳过（可能已有有效索引）"
 else
     echo "✅ 无旧索引，跳过重建"
 fi
@@ -57,6 +68,8 @@ fi
 echo ""
 echo "[6/6] 验证安装..."
 python3 -c "
+import os
+os.environ.setdefault('DEEPSEEK_API_KEY', 'deploy-check')
 from memory_server import memory_health, memory_stats
 health = memory_health()
 stats = memory_stats()
