@@ -161,7 +161,6 @@ def _get_faiss_index() -> faiss.Index:
             _faiss_id_map = {}
             _next_faiss_id = 0
             with _get_conn() as conn:
-                conn.execute("PRAGMA query_only=ON")
                 rows = conn.execute(
                     "SELECT id, vector FROM memory_tree_chunks WHERE vector IS NOT NULL ORDER BY ROWID"
                 ).fetchall()
@@ -236,6 +235,7 @@ def memory_tree_ingest(
     """
     content_hash = _sha256(content)
     chunk_id = str(uuid.uuid4())
+    global _faiss_index, _faiss_id_map, _next_faiss_id
 
     # 去重检查
     with _get_conn() as conn:

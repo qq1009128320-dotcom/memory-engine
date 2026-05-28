@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS memory_tree_chunks (
     entity_count INTEGER DEFAULT 0,                   -- 关联的实体数量
     metadata JSON,                                    -- {author, created_at, updated_at, tags, ...}
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    vector BLOB                                       -- 384维FAISS向量（all-MiniLM-L6-v2编码）
 );
 
 CREATE INDEX IF NOT EXISTS idx_mt_source ON memory_tree_chunks(source_type, source);

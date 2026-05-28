@@ -15,7 +15,7 @@ Environment=PYTHONUNBUFFERED=1
 
 # OOM 保护 — 基线内存 ~700MB(torch+模型+SQLite), 峰值 ~1.2GB
 MemoryHigh=1536M
-MemoryMax=1G
+MemoryMax=2G
 
 [Install]
 WantedBy=default.target
