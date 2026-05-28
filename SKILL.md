@@ -1,7 +1,7 @@
 ---
 name: enterprise-memory
-description: Agent 记忆引擎 — 四层记忆系统（Memory Tree + 偏好记忆 + 纠错记忆 + 知识图谱）。v2.0.5 新增嵌入缓存 + reindex 独立连接 + FastMCP 陷阱文档化。支持两档客户部署方案（轻量级/重型）。让 Agent 越用越聪明，越用越懂你。
-version: 2.0.3
+description: Agent 记忆引擎 — 四层记忆系统（Memory Tree + 偏好记忆 + 纠错记忆 + 知识图谱）。v2.1.0 FAISS 回滚 + 超时保护 + 索引优化 + reindex 独立连接 + FastMCP 陷阱文档化。支持两档客户部署方案（轻量级/重型）。让 Agent 越用越聪明，越用越懂你。
+version: 2.1.0
 platforms: [linux, wsl]
 metadata:
   hermes:
@@ -265,7 +265,7 @@ Agent 在执行任何涉及以下内容的操作前，必须主动查询记忆�
 ### 步骤 6（对话后 — 强制）：
 ```
 每次对话结束后，调用 run_extraction.py 提取新事实：
-python3 /home/administrator/tools/enterprise-memory/run_extraction.py --text "完整对话文本..."
+python3 run_extraction.py --text "完整对话文本..."
 ```
 
 **不遵守上述规则等同于功能未完成。**

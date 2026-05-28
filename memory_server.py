@@ -242,14 +242,49 @@ def _embed_text(text: str) -> np.ndarray:
     cached = _embed_cache.get(text)
     if cached is not None:
         return cached
-    vector = _get_embedding_model().encode([text])[0].astype('float32')
-    _embed_cache[text] = vector
-    return vector
+    # 嵌入调用带超时保护：使用 threading 实现（sentence-transformers 不支持 timeout 参数）
+    model = _get_embedding_model()
+    result = [None]
+    exception = [None]
+
+    def _encode():
+        try:
+            result[0] = model.encode([text])[0].astype('float32')
+        except Exception as e:
+            exception[0] = e
+
+    thread = threading.Thread(target=_encode)
+    thread.start()
+    thread.join(timeout=30)
+    if thread.is_alive():
+        raise TimeoutError(f"Embedding timeout after 30s for text length {len(text)}")
+    if exception[0]:
+        raise exception[0]
+    _embed_cache[text] = result[0]
+    return result[0]
 
 
 def _embed_texts(texts: list[str]) -> np.ndarray:
     """Embed multiple texts in batch."""
-    return _get_embedding_model().encode(texts).astype('float32')
+    # 批量嵌入超时：使用 threading 实现（sentence-transformers 不支持 timeout 参数）
+    model = _get_embedding_model()
+    result = [None]
+    exception = [None]
+
+    def _encode():
+        try:
+            result[0] = model.encode(texts).astype('float32')
+        except Exception as e:
+            exception[0] = e
+
+    thread = threading.Thread(target=_encode)
+    thread.start()
+    thread.join(timeout=60)
+    if thread.is_alive():
+        raise TimeoutError(f"Batch embedding timeout after 60s for {len(texts)} texts")
+    if exception[0]:
+        raise exception[0]
+    return result[0]
 
 
 def _sha256(text: str) -> str:
@@ -344,6 +379,7 @@ def memory_tree_ingest(
     _search_cache.clear()
 
     # ── 生成向量并写入 FAISS ───────────────────────────────────
+    faiss_ok = False
     try:
         doc_text = f"{title}\n{content[:8000]}"
         vector = _embed_text(doc_text)
@@ -374,8 +410,18 @@ def memory_tree_ingest(
             )
             conn.commit()
 
+        faiss_ok = True
+
     except Exception as e:
-        logger.warning("FAISS indexing failed: %s", e)
+        logger.warning("FAISS indexing failed for %s: %s", chunk_id, e)
+        # P1-2: FAISS 写入失败则回滚数据库插入，保持数据一致性
+        try:
+            with _get_conn() as conn:
+                conn.execute("DELETE FROM memory_tree_chunks WHERE id = ?", (chunk_id,))
+                conn.commit()
+            logger.warning("已回滚数据库插入，chunk_id=%s", chunk_id)
+        except Exception as rollback_err:
+            logger.error("回滚失败: %s", rollback_err)
 
     return {
         "status": "ingested",

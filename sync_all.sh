@@ -41,7 +41,7 @@ req = urllib.request.Request(
     method='POST'
 )
 try:
-    resp = urllib.request.urlopen(req, timeout=120)
+    resp = urllib.request.urlopen(req, timeout=300)
     body = resp.read().decode()
     result_text = ''
     for line in body.split('\n'):
