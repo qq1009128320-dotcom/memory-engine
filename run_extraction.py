@@ -127,32 +127,14 @@ EXTRACTION_PROMPT = """你是一个记忆引擎的事实提取器。
 # ---------------------------------------------------------------------------
 
 def call_llm(prompt: str, max_tokens: int = None) -> str:
-    """使用 DeepSeek API 调用 LLM。"""
-    if not LLM_API_KEY:
-        raise RuntimeError("DEEPSEEK_API_KEY 未设置，请检查 .env 文件")
-
-    import httpx
-
-    response = httpx.post(
-        f"{LLM_BASE_URL}/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {LLM_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": LLM_MODEL,
-            "messages": [
-                {"role": "system", "content": "你是一个精确的事实提取器。只输出 JSON，不输出其他内容。"},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.1,
-            "max_tokens": max_tokens or LLM_MAX_TOKENS,
-        },
-        timeout=LLM_TIMEOUT,
+    """使用 DeepSeek API 调用 LLM（使用共享 llm_client 模块）。"""
+    from llm_client import call_llm as _client_call
+    return _client_call(
+        prompt,
+        system_prompt="你是一个精确的事实提取器。只输出 JSON，不输出其他内容。",
+        max_tokens=max_tokens or LLM_MAX_TOKENS,
+        temperature=0.1,
     )
-    response.raise_for_status()
-    data = response.json()
-    return data["choices"][0]["message"]["content"]
 
 
 # ---------------------------------------------------------------------------

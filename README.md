@@ -1,6 +1,19 @@
 # 记忆引擎 (Memory Engine)
 
+[![CI](https://github.com/qq1009128320-dotcom/memory-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/qq1009128320-dotcom/memory-engine/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Version](https://img.shields.io/badge/version-2.1.1-blue)](https://github.com/qq1009128320-dotcom/memory-engine/releases)
+[![Tests](https://img.shields.io/badge/tests-84%20passed-brightgreen)](https://github.com/qq1009128320-dotcom/memory-engine/actions)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+
 四层 Agent 记忆系统。让 Agent 越用越聪明，越用越懂你。
+
+---
+
+> 🏆 **2026 武汉 AI 智能体创新大赛·经开区"经开智造"分赛区参赛项目**
+> 四层记忆架构 + FAISS 向量检索 + Agent 自主编排能力
+
 
 ## 核心理念
 

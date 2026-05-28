@@ -23,7 +23,6 @@ from typing import Any
 
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 from cachetools import TTLCache
 
@@ -84,7 +83,7 @@ def _release_lock() -> None:
 _faiss_index: faiss.Index | None = None
 _faiss_id_map: dict[int, str] = {}  # FAISS idx → chunk_id
 _next_faiss_id: int = 0
-_embedding_model: SentenceTransformer | None = None
+_embedding_model = None  # type: ignore  # lazy-loaded SentenceTransformer
 
 # ---------------------------------------------------------------------------
 # TTL 内存缓存层（替代 Redis，无需额外进程）
@@ -179,12 +178,14 @@ def _init_db() -> None:
         conn.commit()
 
 
-def _get_embedding_model() -> SentenceTransformer:
+def _get_embedding_model():
     """Lazy-load the SentenceTransformer embedding model.
 
     all-MiniLM-L6-v2 (384-dim, ~80MB). No GPU required.
     Uses local_files_only=True to avoid HF network timeouts in offline envs.
+    Deferred import avoids loading torch (~2GB) until first embedding call.
     """
+    from sentence_transformers import SentenceTransformer
     global _embedding_model
     if _embedding_model is None:
         logger.info("Loading embedding model: %s", EMBEDDING_MODEL)
@@ -1304,6 +1305,7 @@ def graph_query(entity_name: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool
+@_log_request
 def memory_search(query: str, layers: str = "all", max_results: int = 20, timeout: float = 30.0) -> dict:
     """
     跨四层综合检索。
