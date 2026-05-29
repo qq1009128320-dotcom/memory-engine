@@ -35,7 +35,7 @@ logger = logging.getLogger("memory_engine")
 
 # 参数校验
 from validators import (
-    validate_not_empty, validate_enum, validate_int_range, validate_scope, validate_safe_text,
+    validate_not_empty, validate_enum, validate_int_range, validate_scope, validate_safe_text, validate_length,
     ALLOWED_CATEGORIES, ALLOWED_SEVERITIES, ALLOWED_ERROR_CATEGORIES,
     ALLOWED_ENTITY_TYPES, ALLOWED_SCOPES, ALLOWED_SOURCE_TYPES, ALLOWED_RELATIONS,
 )
