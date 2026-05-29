@@ -107,6 +107,7 @@ def build_summary_tree(rebuild: bool = False) -> dict:
             where = "WHERE source_type != 'summary'"
         else:
             where = "WHERE source_type != 'summary' AND parent_id IS NULL AND (summary IS NULL OR summary = '')"
+        # P1-2: where 为硬编码白名单字符串，非用户输入，SQL 注入风险可控
         chunks = conn.execute(
             f"SELECT id, source_type, title, content FROM memory_tree_chunks {where} ORDER BY source_type, title"
         ).fetchall()

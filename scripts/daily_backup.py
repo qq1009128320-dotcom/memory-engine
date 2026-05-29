@@ -9,11 +9,12 @@
 import sqlite3
 import shutil
 import gzip
+from pathlib import Path
 import os
 import sys
 from datetime import datetime, timedelta
 
-PROJECT_DIR = "/home/administrator/tools/enterprise-memory"
+PROJECT_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = os.path.join(PROJECT_DIR, "memory.db")
 FAISS_PATH = os.path.join(PROJECT_DIR, "faiss.index")
 BACKUP_DIR = os.path.join(PROJECT_DIR, "backups")

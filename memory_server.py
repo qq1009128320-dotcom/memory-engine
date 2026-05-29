@@ -1464,7 +1464,8 @@ def entity_add(
                 current_aliases = json.loads(current["aliases"]) if current and current["aliases"] else []
                 merged = list(set(current_aliases + aliases_list))
             except (json.JSONDecodeError, TypeError):
-                merged = aliases_list  # 使用新传入的别名
+                merged = aliases_list
+                logger.warning("现有别名 JSON 解析失败，仅保留新传入的别名: id=%s", existing_id)
 
             conn.execute(
                 "UPDATE entities SET aliases = ?, updated_at = ? WHERE id = ?",
@@ -1831,14 +1832,6 @@ if __name__ == "__main__":
 
     # 3. 初始化数据库
     _init_db()
-    # 4GB 方案：添加 vector 列（如果不存在）
-    try:
-        with _get_conn() as conn:
-            conn.execute("ALTER TABLE memory_tree_chunks ADD COLUMN vector BLOB")
-            conn.commit()
-            logger.info("Schema migration: added vector column")
-    except Exception:
-        logger.debug("Schema migration skipped: vector column already exists")
     # 启动指标持久化线程
     from observability import start_metrics_persist_thread
     start_metrics_persist_thread()
