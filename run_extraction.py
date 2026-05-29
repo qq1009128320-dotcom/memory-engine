@@ -146,9 +146,6 @@ def call_llm(prompt: str, max_tokens: int = None) -> str:
     return result
 
 
-def _empty_result() -> dict:
-    return {"preferences": [], "errors": [], "entities": [], "relationships": []}
-
 
 # ---------------------------------------------------------------------------
 # 写入 MCP
