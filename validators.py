@@ -76,6 +76,9 @@ def validate_scope(value: str) -> str:
     if value in ALLOWED_SCOPES:
         return value
     if value.startswith("team:"):
+        import re
+        if not re.match(r"^team:[a-zA-Z0-9_-]+$", value):
+            raise ValidationError(f"scope 格式无效: {value!r}，team 名称只能包含字母、数字、下划线、连字符")
         return value
     raise ValidationError(f"scope 格式无效: {value!r}，允许: {ALLOWED_SCOPES} 或 'team:<部门>'")
 

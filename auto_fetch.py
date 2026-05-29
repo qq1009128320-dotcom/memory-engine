@@ -88,7 +88,7 @@ def _ingest_to_memory_tree(source: str, source_type: str, title: str, content: s
                 conn.execute(
                     """INSERT INTO memory_tree_chunks
                        (id, source, source_type, title, content, content_hash, score, metadata, faiss_id)
-                       VALUES (?, ?, ?, ?, ?, ?, 1.0, ?, -1)""",
+                       VALUES (?, ?, ?, ?, ?, ?, 1.0, ?, -1)  # P2-8: faiss_id=-1, 需后续调用 memory_tree_reindex 重建向量索引""",
                     (chunk_id, source, source_type, title, content, content_hash, "{}"),
                 )
                 conn.commit()

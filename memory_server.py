@@ -259,6 +259,7 @@ class _ConnectionPool:
                 return conn
             
             # 达到最大连接数，等待可用连接
+        # P2-1: 无锁等待期间可能有竞态，但 SQLite busy_timeout=10s 提供保护
         # 无锁等待（避免死锁）
         import time
         for _ in range(100):  # 最多等待 10 秒
@@ -550,8 +551,8 @@ def memory_tree_ingest(
             }
 
     # ── 计算摘要（可选）────────────────────────────────────────
-    summary = ""
-    if generate_summary:
+    summary = None
+    if generate_summary and content:
         summary = content[:200] + "..." if len(content) > 200 else content
 
     # P3-7 (ARCH-3): 改进 entity_count 估算（基于启发式规则，非硬编码关键词）
@@ -646,7 +647,7 @@ def memory_tree_search(query: str, max_results: int = 10, source_type: str = "")
         terms = query.split()
         for term in terms:
             if len(term) < 2:
-                continue  # 跳过单字
+                continue  # P2-6: 跳过单字（中文单字搜索建议用 vector_search）
             sql += " AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\')"
             like = f"%{_escape_like(term)}%"
             params.extend([like, like, like])
@@ -736,7 +737,7 @@ def memory_tree_score(id: str, delta: float) -> dict:
     """
     with _get_conn() as conn:
         conn.execute(
-            "UPDATE memory_tree_chunks SET score = MAX(0, score + ?), "
+            "UPDATE memory_tree_chunks SET score = MAX(0, MIN(10, score + ?)), "
             "correction_count = correction_count + CASE WHEN ? < 0 THEN 1 ELSE 0 END, "
             "updated_at = ? WHERE id = ?",
             (delta, delta, _now(), id),
@@ -934,7 +935,7 @@ def _do_reindex_sync() -> dict:
             
             with _faiss_write_lock:
                 index.add_with_ids(vec_array, np.array(ids, dtype=np.int64))
-                faiss.write_index(index, str(FAISS_INDEX_PATH))
+                _save_faiss_index_safe(index, FAISS_INDEX_PATH)
 
             # 保存向量和 faiss_id 到 SQLite（使用独立连接）
             standalone_conn2 = sqlite3.connect(str(DB_PATH), timeout=10)
@@ -1290,6 +1291,7 @@ def error_log(
 
         if existing:
             new_count = existing["occurrence_count"] + 1
+            # P2-4: occurrence_count >= 3 自动升级为 major
             conn.execute(
                 """UPDATE error_memory
                    SET occurrence_count = ?, last_occurrence = ?, updated_at = ?,
@@ -1657,6 +1659,7 @@ def memory_search(query: str, layers: str = "all", max_results: int = 20, timeou
 
     layers 可选值：all | memory_tree | preferences | errors | graph
     timeout: 单层最大等待秒数（默认 30 秒）
+    注意：各层内部函数有自己的超时保护（embedding 30s/60s）
 
     调用时机（每次对话开始时建议调用）：
     - 用户提到具体的客户名、项目名、部门名

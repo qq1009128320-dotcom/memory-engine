@@ -37,6 +37,7 @@ RUN useradd --create-home --shell /bin/bash memory && \
 
 WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+# models/ 目录包含 embedding 模型，已纳入版本控制
 COPY . .
 
 # P3-10: 设置环境变量
