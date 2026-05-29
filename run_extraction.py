@@ -143,7 +143,6 @@ def call_llm(prompt: str, max_tokens: int = None) -> str:
 # ---------------------------------------------------------------------------
 # parse_extraction_result 和 _empty_result 已移至 utils.py
 
-    return result
 
 
 

@@ -50,9 +50,7 @@ USER memory
 # P3-9 (Q-5): 优化健康检查（使用 HTTP endpoint，避免 SQLite 锁竞争）
 # 注意：需要确保 MCP_SERVER_TRANSPORT=streamable-http
 HEALTHCHECK --interval=60s --timeout=10s --retries=3 --start-period=60s \
-    CMD curl -f http://localhost:8765/health || exit 1
-
-# 资源限制（docker run 时可覆盖）
+    CMD python3 -c "from memory_server import memory_health; h=memory_health(); exit(0 if h[\"status\"]==\"healthy\" else 1)"
 # --memory=2g --cpus=2
 
 EXPOSE 8765

@@ -13,6 +13,8 @@ import os
 import sqlite3
 import subprocess
 import sys
+import logging
+logger = logging.getLogger("auto_fetch")
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -154,8 +156,10 @@ def sync_feishu() -> dict[str, int]:
                                 content=content[:50000],  # 限制大小
                             )
                             counts["docs"] += 1
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
                 counts["errors"] += 1
+                    logger.warning("文件同步失败 %s: %s", file_path.name if "file_path" in dir() else "unknown", e)
+                logger.warning("JSON 解析失败: %s", e)
 
         # 同步多维表格
         result = subprocess.run(
@@ -181,18 +185,22 @@ def sync_feishu() -> dict[str, int]:
                                 content=table_result.stdout[:50000],
                             )
                             counts["tables"] += 1
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
                 counts["errors"] += 1
+                    logger.warning("文件同步失败 %s: %s", file_path.name if "file_path" in dir() else "unknown", e)
+                logger.warning("JSON 解析失败: %s", e)
 
         _update_sync_status("feishu", "success", items=counts["docs"] + counts["tables"])
 
     except subprocess.TimeoutExpired:
         _update_sync_status("feishu", "failed", error="timeout")
         counts["errors"] += 1
+                    logger.warning("文件同步失败 %s: %s", file_path.name if "file_path" in dir() else "unknown", e)
     except Exception as e:
         _update_sync_status("feishu", "failed", error=str(e))
         counts["errors"] += 1
-
+                    logger.warning("文件同步失败 %s: %s", file_path.name if "file_path" in dir() else "unknown", e)
+        logger.error("飞书同步失败: %s", e)
     return counts
 
 
@@ -236,8 +244,9 @@ def sync_local_files(directories: list[str] | None = None) -> dict[str, int]:
                         content=content[:50000],
                     )
                     counts["files"] += 1
-                except Exception:
+                except Exception as e:
                     counts["errors"] += 1
+                    logger.warning("文件同步失败 %s: %s", file_path.name if "file_path" in dir() else "unknown", e)
 
     _update_sync_status("local_files", "success", items=counts["files"])
     return counts
