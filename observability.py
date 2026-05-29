@@ -86,11 +86,19 @@ class Metrics:
             from config import ROOT
             path = ROOT / ".metrics.json"
             # P2-4: 使用文件锁避免并发写入损坏
-            import fcntl
+            # BUG-5: fcntl 跨平台兼容（Windows 回退）
+            try:
+                import fcntl
+                has_fcntl = True
+            except ImportError:
+                has_fcntl = False
+            
             with open(path, "w") as f:
-                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                if has_fcntl:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
                 f.write(json.dumps(self.snapshot()))
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                if has_fcntl:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         except Exception:
             import logging
             logging.getLogger("memory_engine").debug("Metrics persist failed (non-fatal)")
@@ -102,11 +110,19 @@ class Metrics:
             path = ROOT / ".metrics.json"
             if path.exists():
                 # P2-4: 读取时使用共享锁，避免与写入冲突
-                import fcntl
+                # BUG-5: fcntl 跨平台兼容（Windows 回退）
+                try:
+                    import fcntl
+                    has_fcntl = True
+                except ImportError:
+                    has_fcntl = False
+                
                 with open(path, "r") as f:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                    if has_fcntl:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_SH)
                     data = json.loads(f.read())
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                if has_fcntl:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
                 self.request_count = data.get("requests", 0)
                 self.error_count = data.get("errors", 0)
                 self.llm_call_count = data.get("llm_calls", 0)

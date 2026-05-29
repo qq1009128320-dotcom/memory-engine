@@ -23,14 +23,48 @@
 
 ## 四层记忆架构
 
+```mermaid
+graph TD
+    subgraph Agent["🤖 AI Agent"]
+        direction LR
+        A1[Hermes] --> A2[Claude]
+        A2 --> A3[Custom]
+    end
+
+    Agent --> MCP["🔌 MCP Server<br/>memory_server.py<br/>23 个工具"]
+
+    subgraph Layers["四层记忆系统"]
+        direction TB
+        L1["📚 L1: Memory Tree<br/>外部数据感知层<br/>FAISS 向量检索"]
+        L2["⚙️ L2: 偏好记忆<br/>规则/字段映射/日期规则"]
+        L3["🔧 L3: 纠错记忆<br/>错误模式/自动升级"]
+        L4["🗺️ L4: 知识图谱<br/>实体关系/三级权限"]
+    end
+
+    MCP --> L1
+    MCP --> L2
+    MCP --> L3
+    MCP --> L4
+
+    L1 & L2 & L3 & L4 --> DB[("🗄️ SQLite<br/>memory.db")]
+    L1 --> FAISS[("📊 FAISS Index<br/>384-dim vectors")]
+
+    style L1 fill:#e1f5fe
+    style L2 fill:#fff3e0
+    style L3 fill:#fce4ec
+    style L4 fill:#e8f5e9
+    style DB fill:#f3e5f5
+    style FAISS fill:#e0f2f1
+```
+
 | 层 | 名称 | 功能 | 借鉴 |
 |----|------|------|------|
-|| L1 | Memory Tree | 外部数据感知，自动同步 + 层级摘要 | OpenHuman |
-|| L2 | 偏好记忆 | 从对话中自动学习规则和习惯 | Mem0 |
-|| L3 | 纠错记忆 | 记住错误，≥3次自动升级为永久规则 | 独创 |
-|| L4 | 知识图谱 | 实体关系 + 三级权限共享 | Zep |
+| L1 | Memory Tree | 外部数据感知，自动同步 + 层级摘要 | OpenHuman |
+| L2 | 偏好记忆 | 从对话中自动学习规则和习惯 | Mem0 |
+| L3 | 纠错记忆 | 记住错误，≥3 次自动升级为永久规则 | 独创 |
+| L4 | 知识图谱 | 实体关系 + 三级权限共享 | Zep |
 
-**当前版本：v2.1.0** | **FAISS 索引数：57** | **嵌入模型：all-MiniLM-L6-v2（384维）** | **FAISS 向量索引**
+**当前版本：v2.1.1** | **FAISS 索引数：57** | **嵌入模型：all-MiniLM-L6-v2（384 维）** | **FAISS 向量索引**
 
 ## 环境要求
 

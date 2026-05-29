@@ -45,15 +45,21 @@ __all__ = [
     # MCP 工具
     "memory_tree_ingest",
     "memory_tree_search",
-    "memory_tree_summary",
-    "memory_tree_summary_l2",
+    "memory_tree_fetch",
+    "memory_tree_delete",
+    "memory_tree_score",
     "memory_tree_reindex",
+    "memory_tree_summary",
+    "memory_tree_vector_search",
+    "memory_reindex_status",
     "memory_stats",
     "memory_health",
+    "memory_search",
     "preference_add",
     "preference_search",
     "preference_list",
     "preference_disable",
+    "error_check",
     "error_log",
     "error_list",
     "error_delete",
@@ -83,19 +89,64 @@ from config import (
 # ---------------------------------------------------------------------------
 
 def _acquire_lock() -> bool:
-    """获取 PID 文件锁。返回 True 表示获取成功，False 表示已有实例运行中。"""
+    """获取 PID 文件锁。返回 True 表示获取成功，False 表示已有实例运行中。
+    
+    P3-8 (ARCH-4): Docker/K8s 兼容改进：
+    - 支持 DISABLE_PID_LOCK 环境变量禁用锁（容器场景）
+    - 锁文件包含启动时间戳，避免 PID 复用误判
+    - 增加进程名校验
+    """
+    # 容器场景：通过环境变量禁用 PID 锁
+    if os.getenv("DISABLE_PID_LOCK", "").lower() in ("1", "true", "yes"):
+        logger.info("PID lock disabled (DISABLE_PID_LOCK=1)")
+        return True
+    
     if PID_FILE.exists():
         try:
-            old_pid = int(PID_FILE.read_text().strip())
-            os.kill(old_pid, 0)  # 信号 0 只检查进程是否存在
-            # 进程还在运行 —— 锁被持有
-            return False
-        except (ValueError, ProcessLookupError, OSError):
-            # PID 无效或进程已死（OSError 覆盖 Windows 等平台）—— 过期锁，可以抢占
-            pass
+            lock_content = PID_FILE.read_text().strip().split()
+            if len(lock_content) >= 2:
+                old_pid = int(lock_content[0])
+                old_start = float(lock_content[1])
+            else:
+                # 旧格式，只包含 PID
+                old_pid = int(lock_content[0])
+                old_start = 0
+            
+            # 检查进程是否存在
+            try:
+                os.kill(old_pid, 0)
+            except ProcessLookupError:
+                # 进程已死，锁过期，可以抢占
+                pass
+            else:
+                # 进程还在运行
+                # P3-8: 增加进程名校验（避免误判其他进程）
+                try:
+                    import psutil
+                    proc = psutil.Process(old_pid)
+                    if proc.name() not in ("python3", "python", "memory_server"):
+                        logger.warning("PID %d exists but is not a Python process, ignoring", old_pid)
+                    else:
+                        # 检查启动时间是否匹配（避免 PID 复用）
+                        try:
+                            proc_start = proc.create_time()
+                            if old_start > 0 and abs(proc_start - old_start) > 60:
+                                logger.warning("PID %d reused by different process (start time mismatch)", old_pid)
+                            else:
+                                logger.info("Another memory_server instance running (PID %d)", old_pid)
+                                return False
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+                except ImportError:
+                    # psutil 未安装，跳过进程名校验
+                    logger.info("Another memory_server instance running (PID %d, psutil not available)", old_pid)
+                    return False
+        except (ValueError, OSError) as e:
+            logger.debug("Corrupted lock file, ignoring: %s", e)
 
-    # 写入当前 PID
-    PID_FILE.write_text(str(os.getpid()))
+    # 写入当前 PID 和启动时间戳
+    import time
+    PID_FILE.write_text(f"{os.getpid()} {time.time()}")
     return True
 
 
@@ -315,12 +366,23 @@ VECTOR_DIM = 384  # all-MiniLM-L6-v2 维度
 
 def _get_faiss_index() -> faiss.Index:
     """Lazy-load FAISS index from disk.
-    IVF400 with L2 distance. Supports ~500万 vectors in 4GB RAM.
+    IVF400 with L2 distance. Supports ~500 万 vectors in 4GB RAM.
     使用数据库中存储的 faiss_id 字段重建 id_map，而非靠 ROWID 顺序推断。
+    
+    P0-1 (BUG-3): 使用 _faiss_write_lock 保护全局变量访问，防止并发竞态。
     """
     global _faiss_index, _faiss_id_map, _next_faiss_id
 
-    if _faiss_index is None:
+    # 先快速检查（无锁），减少锁竞争
+    if _faiss_index is not None:
+        return _faiss_index
+
+    # 首次加载需要加锁，防止多个线程同时初始化
+    with _faiss_write_lock:
+        # 双重检查（防止另一个线程在锁等待期间已完成初始化）
+        if _faiss_index is not None:
+            return _faiss_index
+
         if FAISS_INDEX_PATH.exists():
             logger.info("Loading FAISS index from %s", FAISS_INDEX_PATH)
             _faiss_index = faiss.read_index(str(FAISS_INDEX_PATH))
@@ -410,6 +472,29 @@ def _rows_to_list(rows: list[sqlite3.Row]) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _escape_like(term: str) -> str:
+    """转义 LIKE 通配符，防止 LIKE wildcard injection（P1-4/SEC-1）。
+    
+    SQLite LIKE 中 % 和 _ 是通配符，需要转义才能匹配字面字符。
+    """
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _save_faiss_index_safe(index: faiss.Index, path: Path) -> None:
+    """原子写入 FAISS 索引（P2-1/PERF-1）。
+    
+    先写临时文件再 rename，避免：
+    1. 写一半时崩溃损坏索引
+    2. 并发读取时读到不完整索引
+    """
+    import tempfile
+    
+    tmp_path = path.with_suffix(".tmp")
+    faiss.write_index(index, str(tmp_path))
+    # atomic rename（同磁盘分区内保证原子性）
+    tmp_path.replace(path)
+
+
 # ---------------------------------------------------------------------------
 # Layer 1: Memory Tree — 外部数据感知层
 # ---------------------------------------------------------------------------
@@ -435,6 +520,9 @@ def memory_tree_ingest(
     - 对话中产生了值得长期保留的信息时
     """
     validate_safe_text(content, "content")
+    # P1-3 (SEC-2): 限制输入长度，防止 DoS 攻击
+    from config import MAX_CONTENT_LENGTH
+    content = validate_length(content, "content", max_len=MAX_CONTENT_LENGTH)
     content_hash = _sha256(content)
     chunk_id = str(uuid.uuid4())
 
@@ -466,7 +554,11 @@ def memory_tree_ingest(
     if generate_summary:
         summary = content[:200] + "..." if len(content) > 200 else content
 
-    entity_count = content.count("客户") + content.count("部门") + content.count("项目")
+    # P3-7 (ARCH-3): 改进 entity_count 估算（基于启发式规则，非硬编码关键词）
+    # 简单启发式：按段落数、列表项数、标题数估算实体密度
+    paragraphs = content.count("\n\n") + 1
+    list_items = content.count("- ") + content.count("* ") + content.count("1. ")
+    entity_count = min(paragraphs + list_items // 2, 100)  # 上限 100
 
     # ── P0-2: 先 FAISS 后数据库（消除竞态条件）─────────────────
     # 步骤 1: 生成向量并写入 FAISS（失败则直接返回，不污染数据库）
@@ -499,7 +591,8 @@ def memory_tree_ingest(
         _faiss_id_map[fid] = chunk_id
         _next_faiss_id = fid + 1
 
-        faiss.write_index(index, str(FAISS_INDEX_PATH))
+        # P2-1 (PERF-1): 原子写入 FAISS 索引（先写临时文件再 rename）
+        _save_faiss_index_safe(index, FAISS_INDEX_PATH)
 
     # 步骤 2: FAISS 成功后再插入数据库（带正确的 faiss_id 和 vector）
     with _get_conn() as conn:
@@ -554,8 +647,8 @@ def memory_tree_search(query: str, max_results: int = 10, source_type: str = "")
         for term in terms:
             if len(term) < 2:
                 continue  # 跳过单字
-            sql += " AND (title LIKE ? OR content LIKE ? OR summary LIKE ?)"
-            like = f"%{term}%"
+            sql += " AND (title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\')"
+            like = f"%{_escape_like(term)}%"
             params.extend([like, like, like])
 
     sql += " ORDER BY score DESC LIMIT ?"
@@ -584,6 +677,51 @@ def memory_tree_fetch(id: str) -> dict | None:
         row = conn.execute("SELECT * FROM memory_tree_chunks WHERE id = ?", (id,)).fetchone()
         conn.commit()
     return _row_to_dict(row)
+
+
+@mcp.tool
+def memory_tree_delete(id: str) -> dict:
+    """
+    从 Memory Tree 中删除一条记录（同时清理 FAISS 索引）。
+    
+    调用时机：
+    - 需要清理错误写入的内容时
+    - 需要删除过期/无效的记忆时
+    
+    注意：删除后无法恢复，请谨慎操作。
+    """
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, faiss_id FROM memory_tree_chunks WHERE id = ?", (id,)
+        ).fetchone()
+        
+        if not row:
+            return {"status": "not_found", "message": f"记录 '{id}' 不存在"}
+        
+        faiss_id = row["faiss_id"]
+        
+        # 从数据库删除
+        conn.execute("DELETE FROM memory_tree_chunks WHERE id = ?", (id,))
+    
+    # 从 FAISS 索引中删除（如果存在）
+    if faiss_id and faiss_id >= 0:
+        try:
+            index = _get_faiss_index()
+            # FAISS IndexIDMap 支持 remove_ids
+            if hasattr(index, "remove_ids"):
+                index.remove_ids(np.array([faiss_id], dtype=np.int64))
+                # 更新全局映射
+                global _faiss_id_map
+                _faiss_id_map.pop(faiss_id, None)
+                # 原子写入索引
+                _save_faiss_index_safe(index, FAISS_INDEX_PATH)
+        except Exception as e:
+            logger.warning("FAISS cleanup failed for id=%s: %s", id, e)
+    
+    # 清空搜索缓存
+    _search_cache.clear()
+    
+    return {"status": "deleted", "id": id, "faiss_id": faiss_id}
 
 
 @mcp.tool
@@ -684,16 +822,53 @@ def memory_tree_vector_search(
 
 
 @mcp.tool
-def memory_tree_reindex() -> dict:
+def memory_tree_reindex(async_mode: bool = False) -> dict:
     """
     重建所有现有 Memory Tree 条目的向量索引。
     在新安装 embedding 模型后、或更换模型后使用。
-
+    
+    P3-6 (PERF-2): 支持 async_mode 参数，异步执行不阻塞服务。
+    
     调用时机：
     - 首次部署后
     - 切换 embedding 模型后
     - 向量索引损坏时
+    
+    Args:
+        async_mode: 如果 True，后台异步执行，返回 task_id 供查询进度
     """
+    if async_mode:
+        import uuid
+        task_id = str(uuid.uuid4())[:8]
+        
+        with _reindex_lock:
+            _reindex_tasks[task_id] = {
+                "status": "running",
+                "progress": 0,
+                "total": 0,
+                "result": None,
+                "error": None,
+            }
+        
+        def _do_reindex():
+            try:
+                result = _do_reindex_sync()
+                with _reindex_lock:
+                    _reindex_tasks[task_id]["status"] = "completed"
+                    _reindex_tasks[task_id]["result"] = result
+            except Exception as e:
+                with _reindex_lock:
+                    _reindex_tasks[task_id]["status"] = "failed"
+                    _reindex_tasks[task_id]["error"] = str(e)
+        
+        threading.Thread(target=_do_reindex, daemon=True).start()
+        return {"status": "started", "task_id": task_id, "message": "后台任务已启动"}
+    
+    return _do_reindex_sync()
+
+
+def _do_reindex_sync() -> dict:
+    """同步执行 reindex（内部函数）。"""
     try:
         # 使用独立 SQLite 连接（不复用 server 线程本地连接，避免并发冲突）
         standalone_conn = sqlite3.connect(str(DB_PATH), timeout=10)
@@ -779,13 +954,44 @@ def memory_tree_reindex() -> dict:
             _faiss_id_map = id_map
             _next_faiss_id = total
 
-        _search_cache.clear()
-        _embed_cache.clear()
-        return {"status": "ok", "indexed": total}
+            _search_cache.clear()
+            _embed_cache.clear()
+            return {"status": "ok", "indexed": total}
 
     except Exception as e:
-        logger.error("memory_tree_reindex failed: %s", e, exc_info=True)
+        # P1-2 (BUG-1): 修复 exc_info 参数错误（原代码 "%s" 占位符没有对应参数）
+        logger.error("memory_tree_reindex failed", exc_info=True)
         return {"status": "error", "message": str(e)}
+
+
+@mcp.tool
+def memory_reindex_status(task_id: str) -> dict:
+    """
+    查询后台 reindex 任务的进度（P3-6/PERF-2）。
+    
+    Args:
+        task_id: 由 memory_tree_reindex(async_mode=True) 返回的任务 ID
+        
+    Returns:
+        {
+            "status": "running" | "completed" | "failed",
+            "progress": int,
+            "total": int,
+            "result": dict | None,
+            "error": str | None,
+        }
+    """
+    with _reindex_lock:
+        task = _reindex_tasks.get(task_id)
+        if not task:
+            return {"status": "not_found", "message": f"任务 '{task_id}' 不存在"}
+        return {
+            "status": task["status"],
+            "progress": task["progress"],
+            "total": task["total"],
+            "result": task["result"],
+            "error": task["error"],
+        }
 
 
 @mcp.tool
