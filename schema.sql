@@ -115,8 +115,8 @@ CREATE INDEX IF NOT EXISTS idx_ent_scope ON entities(scope);
 
 CREATE TABLE IF NOT EXISTS relationships (
     id         TEXT PRIMARY KEY,
-    source_id  TEXT NOT NULL REFERENCES entities(id),
-    target_id  TEXT NOT NULL REFERENCES entities(id),
+    source_id  TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    target_id  TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
     relation   TEXT NOT NULL,
     properties JSON,
     scope      TEXT DEFAULT 'personal',

@@ -13,6 +13,7 @@ services:
       - FAISS_INDEX_PATH=/data/faiss.index
       - LOG_LEVEL=INFO
       - LOG_FILE=/data/memory-engine.log
+      - MCP_SERVER_TRANSPORT=streamable-http
     volumes:
       - memory_data:/data
     restart: unless-stopped
