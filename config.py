@@ -95,12 +95,20 @@ def check_config() -> list[str]:
 def validate_config() -> None:
     """启动时校验配置合法性，不合法直接 raise。"""
     errors = []
+    # 下限检查
     if LLM_TIMEOUT < 5:
         errors.append(f"LLM_TIMEOUT 过小: {LLM_TIMEOUT}s（建议 >= 10s）")
     if MAX_CONCURRENT_REQUESTS < 1:
         errors.append(f"MAX_CONCURRENT_REQUESTS 无效: {MAX_CONCURRENT_REQUESTS}")
     if MAX_CONTENT_LENGTH < 1000:
         errors.append(f"MAX_CONTENT_LENGTH 过小: {MAX_CONTENT_LENGTH}")
+    # P2-12: 上限检查
+    if LLM_TIMEOUT > 300:
+        errors.append(f"LLM_TIMEOUT 过大: {LLM_TIMEOUT}s（建议 <= 300s）")
+    if MAX_CONCURRENT_REQUESTS > 200:
+        errors.append(f"MAX_CONCURRENT_REQUESTS 过大: {MAX_CONCURRENT_REQUESTS}（建议 <= 200）")
+    if MAX_CONTENT_LENGTH > 200000:
+        errors.append(f"MAX_CONTENT_LENGTH 过大: {MAX_CONTENT_LENGTH}（建议 <= 200000）")
     if errors:
         # P3-2: 格式化错误信息，便于阅读
         error_msg = "配置校验失败:\n" + "\n".join(f"  - {e}" for e in errors)

@@ -1,3 +1,8 @@
+"""
+DEPRECATED: 请使用 db_migrations.py 代替。
+此脚本保留用于旧数据库升级，新部署应使用 db_migrations.run_migrations()。
+"""
+
 #!/usr/bin/env python3
 """
 迁移脚本：为旧数据库添加 faiss_id 和 ingest_count 字段。

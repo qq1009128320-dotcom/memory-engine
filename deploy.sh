@@ -74,7 +74,7 @@ import os
 os.environ.setdefault('DEEPSEEK_API_KEY', 'deploy-check')
 from memory_server import _init_db
 _init_db()
-" || python3 migrate_add_faiss_id.py
+" || python3 -c "from db_migrations import run_migrations; run_migrations()"
 echo "✅ 数据库检查完成"
 
 # 5. 重建 FAISS 索引（如果存在旧数据）

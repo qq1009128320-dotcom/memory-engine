@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 from config import DB_PATH, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT
-from utils import now as _now
+from utils import now as _now, sha256
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -168,7 +168,7 @@ def build_summary_tree(rebuild: bool = False) -> dict:
         # 存储 L0 摘要到数据库（作为一个特殊的 chunk）
         import uuid, hashlib
         l0_id = str(uuid.uuid4())
-        l0_hash = hashlib.sha256(l0_summary.encode()).hexdigest()[:16]
+        l0_hash = sha256(l0_summary)[:16]
         existing_l0 = conn.execute(
             "SELECT id FROM memory_tree_chunks WHERE source_type = 'summary' AND title = 'L0_全局概览'"
         ).fetchone()

@@ -51,6 +51,10 @@ def temp_db(monkeypatch, tmp_path):
 def cleanup_after_test(temp_db):
     """P2-8: 测试后清理测试数据，防止测试间相互影响。"""
     yield
+    # P2-5: 检查文件是否存在，避免 FileNotFoundError
+    if not Path(temp_db).exists():
+        return
+    
     # 清理测试产生的数据
     try:
         conn = sqlite3.connect(str(temp_db))
