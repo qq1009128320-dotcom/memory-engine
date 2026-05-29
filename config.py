@@ -102,4 +102,6 @@ def validate_config() -> None:
     if MAX_CONTENT_LENGTH < 1000:
         errors.append(f"MAX_CONTENT_LENGTH 过小: {MAX_CONTENT_LENGTH}")
     if errors:
-        raise ValueError("配置校验失败:\n  " + "\n  ".join(errors))
+        # P3-2: 格式化错误信息，便于阅读
+        error_msg = "配置校验失败:\n" + "\n".join(f"  - {e}" for e in errors)
+        raise ValueError(error_msg)

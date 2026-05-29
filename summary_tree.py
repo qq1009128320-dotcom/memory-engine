@@ -16,10 +16,7 @@ from datetime import datetime, timezone
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 from config import DB_PATH, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+from utils import now as _now
 
 
 def _get_conn() -> sqlite3.Connection:

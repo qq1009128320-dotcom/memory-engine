@@ -22,14 +22,7 @@ from typing import Any
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 from config import DB_PATH, FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENABLED
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _sha256(text: str) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()[:16]
+from utils import now as _now, sha256 as _sha256
 
 
 # ---------------------------------------------------------------------------
@@ -219,16 +212,25 @@ def sync_local_files(directories: list[str] | None = None) -> dict[str, int]:
         directories = []
 
     for directory in directories:
-        path = Path(directory)
-        if not path.exists():
+        # P1-2: 路径遍历防护 - 解析绝对路径并验证文件在目录内
+        base_path = Path(directory).resolve()
+        if not base_path.is_dir():
+            logger.warning("跳过无效目录: %s", directory)
             continue
 
-        for file_path in path.rglob("*"):
+        for file_path in base_path.rglob("*"):
+            # 确保文件在 base_path 内（防止软链接越界）
+            try:
+                file_path.resolve().relative_to(base_path)
+            except ValueError:
+                logger.warning("跳过越界文件（路径遍历防护）: %s", file_path)
+                continue
+
             if file_path.is_file() and file_path.suffix in (".md", ".txt", ".csv", ".json"):
                 try:
                     content = file_path.read_text(encoding="utf-8", errors="replace")
                     _ingest_to_memory_tree(
-                        source=f"file:{file_path}",
+                        source=f"file:{file_path.name}",  # 只记录文件名，不包含完整路径
                         source_type="file",
                         title=file_path.name,
                         content=content[:50000],

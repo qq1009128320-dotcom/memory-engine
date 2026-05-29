@@ -3,12 +3,16 @@
 # 由 Hermes cronjob 每 20 分钟触发
 set -e
 
-SCRIPT_DIR="/home/administrator/tools/enterprise-memory"
+# P1-5: 动态获取脚本目录，避免硬编码路径
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_PYTHON="$SCRIPT_DIR/venv/bin/python3"
 LOG_FILE="$SCRIPT_DIR/auto_fetch.log"
 
-# 确保 PATH 包含 lark-cli
-export PATH="$HOME/.hermes/node/bin:$PATH"
+# 确保 PATH 包含 lark-cli（使用相对路径）
+HERMES_NODE="$HOME/.hermes/node/bin"
+if [ -d "$HERMES_NODE" ]; then
+    export PATH="$HERMES_NODE:$PATH"
+fi
 
 cd "$SCRIPT_DIR"
 

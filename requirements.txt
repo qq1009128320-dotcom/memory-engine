@@ -4,19 +4,19 @@
 # Python >= 3.10
 
 # MCP 协议框架
-fastmcp>=3.0,<4.0
+fastmcp>=3.0.0,<3.1.0
 
 # SSE 传输（HTTP 服务器）
-uvicorn>=0.30,<1.0
+uvicorn>=0.30.0,<0.31.0
 
 # 向量存储 + 嵌入模型
-faiss-cpu>=1.7,<2.0               # FAISS 向量索引（CPU 版本）
-sentence-transformers>=3.0,<4.0   # 嵌入模型（all-MiniLM-L6-v2）
-numpy>=1.26,<3.0                  # 向量计算
-cachetools>=5.0,<6.0              # TTL 内存缓存
+faiss-cpu>=1.7.4,<1.8.0          # FAISS 向量索引（CPU 版本）
+sentence-transformers>=3.0.0,<3.1.0  # 嵌入模型（all-MiniLM-L6-v2）
+numpy>=1.26.0,<2.0                # 向量计算
+cachetools>=5.3.0,<5.4.0          # TTL 内存缓存
 
 # HuggingFace Hub（模型下载/缓存）
-huggingface-hub>=0.25,<1.0
+huggingface-hub>=0.25.0,<0.26.0
 
 # ONNX 运行时（嵌入模型推理）
 onnxruntime>=1.18,<2.0

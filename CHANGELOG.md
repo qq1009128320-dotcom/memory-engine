@@ -6,7 +6,42 @@
 
 ---
 
-## [v2.1.0] - 当前版本
+## [v2.1.1] - 当前版本（生产级全面加固）
+
+### 安全
+- **路径遍历防护**：auto_fetch.py sync_local_files 使用 relative_to 验证文件在目录内
+- **JSON 参数严格校验**：entity_add 的 aliases/properties 参数现在验证类型和格式
+- **控制字符过滤增强**：validators.py 扩展范围包含 DEL、C1 控制字符和 Unicode 零宽字符
+- **日志脱敏优化**：log_utils.py 只匹配长字符串（真实密钥），避免误匹配短文本
+
+### 新增
+- **SQLite 连接池**：_ConnectionPool 类限制最大连接数（10），自动回收闲置连接
+- **共享工具模块**：utils.py 提取重复函数（now, sha256, parse_extraction_result, empty_result）
+- **进度反馈**：memory_tree_reindex 每 100 条打印一次进度
+- **部署回滚机制**：deploy.sh 失败时自动恢复备份
+
+### 修复
+- **P0-1**: migrate_add_faiss_id.py 添加 vector 列迁移
+- **P0-2**: memory_tree_ingest 改为"先 FAISS 后数据库"，消除竞态条件
+- **P0-3**: 实现 SQLite 连接池，解决连接泄漏问题
+- **P1-4**: 缓存键包含 max_results，防止返回错误数量结果
+- **P1-6**: error_log 升级偏好规则添加去重，避免重复创建
+- **P2-2**: memory_tree_search LIMIT 默认值保护（1-100 范围）
+- **P2-4**: observability.py 指标持久化使用文件锁
+- **P2-7**: docker-compose.yml 健康检查优化（60s 间隔，60s 启动宽限期）
+- **P2-8**: conftest.py 添加测试数据清理 fixture
+- **P2-10**: _log_request 装饰器添加异常分类（ValidationError/TimeoutError/Exception）
+
+### 优化
+- **版本统一**：所有文件版本号统一为 v2.1.1
+- **requirements.txt 精确版本约束**：使用 >=x.y.z,<x.y+1.0 格式
+- **systemd 环境变量**：添加 PYTHONUNBUFFERED=1, PYTHONDONTWRITEBYTECODE=1
+- **错误信息格式化**：config.py validate_config 输出更易读
+- **代码审查清单**：CONTRIBUTING.md 添加详细审查检查项
+
+---
+
+## [v2.1.0] - 上一版本
 
 ### 新增
 - **FAISS 写入失败自动回滚**：memory_tree_ingest 在 FAISS 索引失败时自动删除数据库行，保持数据一致性

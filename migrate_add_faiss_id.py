@@ -30,6 +30,13 @@ def migrate():
     else:
         print("ℹ️  ingest_count 字段已存在")
 
+    # P0-1: 添加 vector 字段（FAISS 索引必需）
+    if "vector" not in cols:
+        cursor.execute("ALTER TABLE memory_tree_chunks ADD COLUMN vector BLOB")
+        print("✅ 添加 vector 字段")
+    else:
+        print("ℹ️  vector 字段已存在")
+
     # 添加索引（IF NOT EXISTS 保证幂等）
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_mt_faissid ON memory_tree_chunks(faiss_id)")
     cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_mt_hash ON memory_tree_chunks(content_hash)")

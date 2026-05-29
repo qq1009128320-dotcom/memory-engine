@@ -1,11 +1,19 @@
 #!/bin/bash
 # 企业级 Agent 记忆引擎 — 初始化脚本
 # 运行一次即可完成数据库初始化
-
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VENV_PYTHON="$SCRIPT_DIR/venv/bin/python3"
+# P3-4: 动态检测 venv，优先使用当前环境的 Python
+if [ -f "$SCRIPT_DIR/venv/bin/python3" ]; then
+    VENV_PYTHON="$SCRIPT_DIR/venv/bin/python3"
+elif command -v python3 &>/dev/null; then
+    VENV_PYTHON="python3"
+    echo "⚠️  未检测到 venv，使用系统 Python"
+else
+    echo "❌ 未找到 Python3，请安装"
+    exit 1
+fi
 
 echo "=== 企业级 Agent 记忆引擎 — 初始化 ==="
 echo ""

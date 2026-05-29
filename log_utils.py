@@ -15,11 +15,17 @@ from datetime import datetime, timezone
 
 
 # 敏感字段正则（匹配 API key、token、password 等）
+# P2-6: 优化脱敏规则，只匹配长字符串（真实密钥通常较长）
 _SENSITIVE_PATTERNS = [
-    (re.compile(r'(api_key|apikey|secret|password|token|auth)\s*[:=]\s*["\']?([^"\'&\s]+)', re.IGNORECASE),
+    # 匹配 key=value 格式，值至少 20 字符（避免误匹配短文本）
+    (re.compile(r'(api_key|apikey|secret|password|token|auth)\s*[:=]\s*["\']?([A-Za-z0-9_\-]{20,})', re.IGNORECASE),
      r'\1=***REDACTED***'),
+    # sk- 开头的密钥，至少 20 字符
     (re.compile(r'sk-[A-Za-z0-9]{20,}'),
      'sk-***REDACTED***'),
+    # 补充：Bearer token 格式
+    (re.compile(r'Bearer\s+[A-Za-z0-9_\-\.]{20,}', re.IGNORECASE),
+     'Bearer ***REDACTED***'),
 ]
 
 
