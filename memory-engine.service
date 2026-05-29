@@ -25,7 +25,9 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=memory-engine
 
-# 环境变量
+# P3-7: 添加关键环境变量
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
 EnvironmentFile=/opt/memory-engine/.env
 
 [Install]

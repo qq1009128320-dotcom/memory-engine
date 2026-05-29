@@ -27,7 +27,10 @@ def validate_length(value: str, name: str, max_len: int = 50000) -> str:
 def validate_safe_text(value: str, name: str) -> str:
     """过滤特殊字符，防止注入和破坏。"""
     # 移除 NULL 字节和不可打印控制字符（保留换行和制表符）
-    cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', value)
+    # P1-3: 扩展控制字符范围，包含 DEL 和 C1 控制字符
+    cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', value)
+    # 过滤 Unicode 零宽字符（U+200B-U+200D, U+FEFF）
+    cleaned = re.sub(r'[\u200b-\u200d\uFEFF]', '', cleaned)
     if cleaned != value:
         raise ValidationError(f"{name} 包含非法控制字符")
     return cleaned
@@ -48,7 +51,28 @@ def validate_int_range(value: int, name: str, min_val: int = 1, max_val: int = 1
 
 
 def validate_scope(value: str) -> str:
-    """支持 personal | team | team:xxx | organization 格式。"""
+    """验证 scope 参数格式（P3-1: 完整文档注释）。
+    
+    支持的格式：
+    - personal: 个人级别（默认）
+    - team: 团队级别
+    - team:<name>: 特定团队（如 team:finance）
+    - organization: 组织级别
+    
+    示例：
+        validate_scope("personal")  # → "personal"
+        validate_scope("team:finance")  # → "team:finance"
+        validate_scope("invalid")  # → ValidationError
+    
+    Args:
+        value: scope 字符串值
+        
+    Returns:
+        验证后的 scope 字符串
+        
+    Raises:
+        ValidationError: 格式无效时抛出
+    """
     if value in ALLOWED_SCOPES:
         return value
     if value.startswith("team:"):

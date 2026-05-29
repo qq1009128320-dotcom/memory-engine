@@ -27,6 +27,7 @@ from typing import Any
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_MAX_TOKENS, LLM_TIMEOUT
+from utils import parse_extraction_result, empty_result as _empty_result
 
 # ---------------------------------------------------------------------------
 # 导入 MCP 工具（直接调用 memory_server 的函数，不走 MCP 协议）
@@ -138,36 +139,9 @@ def call_llm(prompt: str, max_tokens: int = None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 解析 LLM 输出
+# 解析和验证（使用 utils 中的共享函数）
 # ---------------------------------------------------------------------------
-
-def parse_extraction_result(llm_output: str) -> dict[str, list[dict[str, Any]]]:
-    """解析 LLM 返回的 JSON，并做基本验证。"""
-    import re
-
-    cleaned = llm_output.strip()
-    # 去掉 markdown 代码块
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-    cleaned = cleaned.strip()
-
-    try:
-        result = json.loads(cleaned)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-        if match:
-            try:
-                result = json.loads(match.group())
-            except json.JSONDecodeError:
-                return _empty_result()
-        else:
-            return _empty_result()
-
-    for key in ["preferences", "errors", "entities", "relationships"]:
-        if key not in result:
-            result[key] = []
+# parse_extraction_result 和 _empty_result 已移至 utils.py
 
     return result
 

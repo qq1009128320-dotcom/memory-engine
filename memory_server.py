@@ -5,8 +5,9 @@ Agent 记忆引擎 — MCP Server
 
 通过 MCP 协议接入任何 Agent 框架（Hermes / Claude / 自定义）。
 FastMCP 3.x, Python 3.10+, SQLite.
-"""
 
+v2.1.1: 生产级全面加固
+"""
 from __future__ import annotations
 
 import hashlib
@@ -38,6 +39,33 @@ from validators import (
     ALLOWED_CATEGORIES, ALLOWED_SEVERITIES, ALLOWED_ERROR_CATEGORIES,
     ALLOWED_ENTITY_TYPES, ALLOWED_SCOPES, ALLOWED_SOURCE_TYPES, ALLOWED_RELATIONS,
 )
+
+# P3-3: 导出公共 API（避免意外导入内部函数）
+__all__ = [
+    # MCP 工具
+    "memory_tree_ingest",
+    "memory_tree_search",
+    "memory_tree_summary",
+    "memory_tree_summary_l2",
+    "memory_tree_reindex",
+    "memory_stats",
+    "memory_health",
+    "preference_add",
+    "preference_search",
+    "preference_list",
+    "preference_disable",
+    "error_log",
+    "error_list",
+    "error_delete",
+    "entity_add",
+    "entity_search",
+    "entity_link",
+    "entity_graph_query",
+    "sync_all_sources",
+    "sync_feishu",
+    "sync_local_files",
+    # 内部函数（不导出）
+]
 
 # ---------------------------------------------------------------------------
 # 统一配置（从 config.py 读取，可被 .env 覆盖）
@@ -111,8 +139,17 @@ def _log_request(func):
         t0 = _time_module.monotonic()
         try:
             return func(*args, **kwargs)
+        except ValidationError as e:
+            # P2-10: 业务验证错误，记录为 warning（非系统错误）
+            logger.warning("Validation error in %s: %s", func.__name__, e)
+            raise
+        except TimeoutError as e:
+            # P2-10: 超时错误，记录为 error
+            logger.error("Timeout in %s: %s", func.__name__, e)
+            raise
         except Exception:
-            logger.exception("Tool %s failed", func.__name__)
+            # P2-10: 未预期错误，记录为 exception
+            logger.exception("Unexpected error in %s", func.__name__)
             raise
         finally:
             _concurrent_requests -= 1
@@ -138,23 +175,102 @@ mcp = FastMCP(MCP_SERVER_NAME)
 # ---------------------------------------------------------------------------
 # SQLite 连接池（线程本地 + 性能优化）
 # ---------------------------------------------------------------------------
-_conn_local = threading.local()
-
-def _get_conn() -> sqlite3.Connection:
-    """获取线程本地的 SQLite 连接（复用，避免每次新建）。"""
-    if not hasattr(_conn_local, "conn") or _conn_local.conn is None:
-        conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+# SQLite 连接池（P0-3: 解决线程本地连接泄漏问题）
+# ---------------------------------------------------------------------------
+class _ConnectionPool:
+    """SQLite 连接池，限制最大连接数，自动回收闲置连接。"""
+    
+    def __init__(self, db_path: str, max_size: int = 10):
+        self._db_path = db_path
+        self._max_size = max_size
+        self._pool: list[sqlite3.Connection] = []
+        self._lock = threading.Lock()
+        self._created = 0
+    
+    def get_conn(self) -> sqlite3.Connection:
+        """从池中获取连接，或创建新连接（不超过 max_size）。"""
+        with self._lock:
+            # 优先从池中获取闲置连接
+            while self._pool:
+                conn = self._pool.pop()
+                try:
+                    # 检查连接是否还有效
+                    conn.execute("SELECT 1")
+                    return conn
+                except sqlite3.OperationalError:
+                    # 连接已失效，丢弃
+                    conn.close()
+            
+            # 池为空，尝试创建新连接
+            if self._created < self._max_size:
+                conn = self._create_conn()
+                self._created += 1
+                return conn
+            
+            # 达到最大连接数，等待可用连接
+        # 无锁等待（避免死锁）
+        import time
+        for _ in range(100):  # 最多等待 10 秒
+            time.sleep(0.1)
+            with self._lock:
+                if self._pool:
+                    conn = self._pool.pop()
+                    try:
+                        conn.execute("SELECT 1")
+                        return conn
+                    except sqlite3.OperationalError:
+                        conn.close()
+        raise RuntimeError(f"SQLite 连接池已满（max={self._max_size}），无法获取连接")
+    
+    def return_conn(self, conn: sqlite3.Connection):
+        """归还连接到池中。"""
+        with self._lock:
+            if len(self._pool) < self._max_size:
+                self._pool.append(conn)
+            else:
+                conn.close()
+                self._created -= 1
+    
+    def _create_conn(self) -> sqlite3.Connection:
+        """创建新连接并应用优化配置。"""
+        conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA cache_size=-128000")  # 128MB（提升查询性能）
+        conn.execute("PRAGMA cache_size=-128000")  # 128MB
         conn.execute("PRAGMA temp_store=MEMORY")
-        conn.execute("PRAGMA mmap_size=134217728")   # 128MB（原 512MB，内存优化）
-        conn.execute("PRAGMA busy_timeout=10000")   # 5s → 10s
-        conn.execute("PRAGMA page_size=4096")        # 4KB 页（适配 SSD）
-        _conn_local.conn = conn
-    return _conn_local.conn
+        conn.execute("PRAGMA mmap_size=134217728")  # 128MB
+        conn.execute("PRAGMA busy_timeout=10000")   # 10s
+        conn.execute("PRAGMA page_size=4096")       # 4KB 页
+        return conn
+    
+    def close_all(self):
+        """关闭所有连接（用于优雅关闭）。"""
+        with self._lock:
+            for conn in self._pool:
+                conn.close()
+            self._pool.clear()
+            self._created = 0
+
+
+# 全局连接池实例
+_conn_pool = _ConnectionPool(str(DB_PATH), max_size=10)
+
+
+def _get_conn():
+    """获取 SQLite 连接（从连接池）。使用 contextmanager 确保自动归还。"""
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def conn_context():
+        conn = _conn_pool.get_conn()
+        try:
+            yield conn
+        finally:
+            _conn_pool.return_conn(conn)
+    
+    return conn_context()
 
 
 def _init_db() -> None:
@@ -283,12 +399,7 @@ def _embed_texts(texts: list[str]) -> np.ndarray:
     return result[0]
 
 
-def _sha256(text: str) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()[:16]
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+from utils import now as _now, sha256 as _sha256
 
 
 def _row_to_dict(row: sqlite3.Row | None) -> dict | None:
@@ -357,16 +468,49 @@ def memory_tree_ingest(
 
     entity_count = content.count("客户") + content.count("部门") + content.count("项目")
 
-    # ── 先插入数据库行（faiss_id 暂设 -1）─────────────────────
+    # ── P0-2: 先 FAISS 后数据库（消除竞态条件）─────────────────
+    # 步骤 1: 生成向量并写入 FAISS（失败则直接返回，不污染数据库）
+    doc_text = f"{title}\n{content[:8000]}"
+    try:
+        vector = _embed_text(doc_text)
+    except Exception as e:
+        logger.error("Embedding failed for %s: %s", chunk_id, e)
+        return {
+            "status": "error",
+            "message": f"嵌入模型失败: {e}",
+            "id": chunk_id,
+            "hash": content_hash,
+        }
+
+    # 获取 faiss_id（在写入前分配，保证原子性）
+    with _faiss_write_lock:
+        index = _get_faiss_index()
+
+        if hasattr(index, "is_trained") and not index.is_trained:
+            logger.info("Index not trained, upgrading to Flat index")
+            index = faiss.IndexIDMap(faiss.IndexFlatL2(VECTOR_DIM))
+            _faiss_index = index
+
+        fid = _next_faiss_id
+        index.add_with_ids(
+            vector.reshape(1, -1),
+            np.array([fid], dtype=np.int64),
+        )
+        _faiss_id_map[fid] = chunk_id
+        _next_faiss_id = fid + 1
+
+        faiss.write_index(index, str(FAISS_INDEX_PATH))
+
+    # 步骤 2: FAISS 成功后再插入数据库（带正确的 faiss_id 和 vector）
     with _get_conn() as conn:
         conn.execute(
             """INSERT INTO memory_tree_chunks
                (id, source, source_type, title, content, content_hash,
-                parent_id, summary, score, entity_count, metadata, faiss_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, ?, ?, -1)""",
+                parent_id, summary, score, entity_count, metadata, faiss_id, vector)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, ?, ?, ?, ?)""",
             (
                 chunk_id, source, source_type, title, content, content_hash,
-                parent_id or None, summary, entity_count, metadata,
+                parent_id or None, summary, entity_count, metadata, fid, vector.tobytes(),
             ),
         )
         conn.commit()
@@ -374,58 +518,6 @@ def memory_tree_ingest(
     # 清空搜索缓存
     _search_cache.clear()
 
-    # ── 生成向量并写入 FAISS ───────────────────────────────────
-    faiss_ok = False
-    try:
-        doc_text = f"{title}\n{content[:8000]}"
-        vector = _embed_text(doc_text)
-        
-        with _faiss_write_lock:
-            index = _get_faiss_index()
-
-            if hasattr(index, "is_trained") and not index.is_trained:
-                logger.info("Index not trained, upgrading to Flat index")
-                index = faiss.IndexIDMap(faiss.IndexFlatL2(VECTOR_DIM))
-                _faiss_index = index
-
-            fid = _next_faiss_id
-            index.add_with_ids(
-                vector.reshape(1, -1),
-                np.array([fid], dtype=np.int64),
-            )
-            _faiss_id_map[fid] = chunk_id
-            _next_faiss_id = fid + 1
-
-            faiss.write_index(index, str(FAISS_INDEX_PATH))
-
-        # 同步更新数据库中的 faiss_id 和 vector（新连接，保证事务独立）
-        with _get_conn() as conn:
-            conn.execute(
-                "UPDATE memory_tree_chunks SET faiss_id = ?, vector = ? WHERE id = ?",
-                (fid, vector.tobytes(), chunk_id),
-            )
-            conn.commit()
-
-        faiss_ok = True
-
-    except Exception as e:
-        logger.warning("FAISS indexing failed for %s: %s", chunk_id, e)
-        # P1-2: FAISS 写入失败则回滚数据库插入，保持数据一致性
-        try:
-            with _get_conn() as conn:
-                conn.execute("DELETE FROM memory_tree_chunks WHERE id = ?", (chunk_id,))
-                conn.commit()
-            logger.warning("已回滚数据库插入，chunk_id=%s", chunk_id)
-        except Exception as rollback_err:
-            logger.error("回滚失败: %s", rollback_err)
-
-    if not faiss_ok:
-        return {
-            "status": "error",
-            "message": "FAISS 索引失败，数据已回滚。请重试或检查嵌入模型。",
-            "id": chunk_id,
-            "hash": content_hash,
-        }
     return {
         "status": "ingested",
         "id": chunk_id,
@@ -445,6 +537,9 @@ def memory_tree_search(query: str, max_results: int = 10, source_type: str = "")
     - 用户问「关于 XX 有什么资料」
     - 任务开始前，了解相关背景
     """
+    # P2-2: 限制 max_results 范围，防止异常值
+    max_results = max(1, min(max_results, 100))
+    
     sql = """SELECT id, source, source_type, title, summary, score, entity_count, created_at
              FROM memory_tree_chunks WHERE 1=1"""
     params: list = []
@@ -529,7 +624,8 @@ def memory_tree_vector_search(
     - 用户问自然语言问题（非精确关键词）
     - memory_tree_search 结果不理想时
     """
-    cache_key = f"vs:{query}:{source_type}:{max_results}"
+    # P1-4: 缓存键包含 max_results（防止不同 max_results 返回错误结果）
+    cache_key = f"vs:{query}:{source_type}:n{max_results}"
     cached_result = _search_cache.get(cache_key)
     if cached_result is not None:
         return cached_result
@@ -545,7 +641,7 @@ def memory_tree_vector_search(
     )
 
     items: list[dict] = []
-    # 批量获取所有候选chunk_id
+    # 批量获取所有候选 chunk_id
     candidate_ids = [_faiss_id_map[fid] for fid in indices[0] 
                      if fid >= 0 and fid in _faiss_id_map]
     
@@ -561,7 +657,7 @@ def memory_tree_vector_search(
             candidate_ids
         ).fetchall()
         
-        # 构建id到row的映射
+        # 构建 id 到 row 的映射
         row_map = {row["id"]: row for row in rows}
         
         for dist, fid in zip(distances[0], indices[0]):
@@ -648,6 +744,12 @@ def memory_tree_reindex() -> dict:
                 id_map[total + j] = bid
 
             total += len(batch)
+            
+            # P2-5: 进度反馈（每 100 条打印一次）
+            if total % 100 == 0 or total >= len(rows):
+                logger.info("Reindex progress: %d/%d (%.1f%%)", 
+                           total, len(rows), 100 * total / len(rows))
+            
             gc.collect()
 
         if vectors:
@@ -1001,17 +1103,33 @@ def error_log(
                 }
                 pref_category = _error_to_pref_category.get(error_category, "policy")
                 rule_hash = _sha256(f"prevent:{task_type}|{correction}")
-                pref_id = str(uuid.uuid4())
-                conn.execute(
-                    """INSERT OR IGNORE INTO preference_memory
-                       (id, category, condition, rule, rule_hash, source_type, confidence, scope)
-                       VALUES (?, ?, ?, ?, ?, 'extracted', 0.9, 'personal')""",
-                    (pref_id, pref_category, f"任务类型={task_type}", correction, rule_hash),
-                )
-                conn.execute(
-                    "UPDATE error_memory SET is_resolved = 1, resolved_to = ? WHERE id = ?",
-                    (pref_id, existing["id"]),
-                )
+                
+                # P1-6: 检查是否已存在相同 rule_hash 的偏好，避免重复创建
+                existing_pref = conn.execute(
+                    "SELECT id FROM preference_memory WHERE rule_hash = ?", (rule_hash,)
+                ).fetchone()
+                
+                if existing_pref:
+                    # 关联到已有偏好
+                    conn.execute(
+                        "UPDATE error_memory SET is_resolved = 1, resolved_to = ? WHERE id = ?",
+                        (existing_pref["id"], existing["id"]),
+                    )
+                    resolved_pref_id = existing_pref["id"]
+                else:
+                    # 创建新偏好
+                    pref_id = str(uuid.uuid4())
+                    conn.execute(
+                        """INSERT INTO preference_memory
+                           (id, category, condition, rule, rule_hash, source_type, confidence, scope)
+                           VALUES (?, ?, ?, ?, ?, 'extracted', 0.9, 'personal')""",
+                        (pref_id, pref_category, f"任务类型={task_type}", correction, rule_hash),
+                    )
+                    conn.execute(
+                        "UPDATE error_memory SET is_resolved = 1, resolved_to = ? WHERE id = ?",
+                        (pref_id, existing["id"]),
+                    )
+                    resolved_pref_id = pref_id
 
             conn.commit()
             return {
@@ -1106,6 +1224,21 @@ def entity_add(
     validate_enum(type, "type", ALLOWED_ENTITY_TYPES)
     validate_enum(scope, "scope", ALLOWED_SCOPES)
 
+    # P1-1: 严格校验 JSON 参数
+    try:
+        aliases_list = json.loads(aliases)
+        if not isinstance(aliases_list, list):
+            raise ValidationError("aliases 必须是 JSON 数组，如 '[]' 或 '[""alias1"", ""alias2""]'")
+    except json.JSONDecodeError as e:
+        raise ValidationError(f"aliases 不是有效的 JSON: {e}")
+
+    try:
+        props_dict = json.loads(properties)
+        if not isinstance(props_dict, dict):
+            raise ValidationError("properties 必须是 JSON 对象，如 '{}' 或 '{""key"": ""value""}'")
+    except json.JSONDecodeError as e:
+        raise ValidationError(f"properties 不是有效的 JSON: {e}")
+
     entity_id = str(uuid.uuid4())
 
     with _get_conn() as conn:
@@ -1123,10 +1256,9 @@ def entity_add(
             ).fetchone()
             try:
                 current_aliases = json.loads(current["aliases"]) if current and current["aliases"] else []
-                new_aliases = json.loads(aliases) if isinstance(aliases, str) else aliases
-                merged = list(set(current_aliases + new_aliases))
+                merged = list(set(current_aliases + aliases_list))
             except (json.JSONDecodeError, TypeError):
-                merged = []
+                merged = aliases_list  # 使用新传入的别名
 
             conn.execute(
                 "UPDATE entities SET aliases = ?, updated_at = ? WHERE id = ?",
@@ -1135,10 +1267,12 @@ def entity_add(
             conn.commit()
             return {"status": "merged", "id": existing_id, "aliases": merged}
 
+        # 使用校验后的 JSON 对象存储（确保格式正确）
         conn.execute(
             """INSERT INTO entities (id, type, name, aliases, properties, scope, department)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (entity_id, type, name, aliases, properties, scope, department or None),
+            (entity_id, type, name, json.dumps(aliases_list, ensure_ascii=False), 
+             json.dumps(props_dict, ensure_ascii=False), scope, department or None),
         )
         conn.commit()
 

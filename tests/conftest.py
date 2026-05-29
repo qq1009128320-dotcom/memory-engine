@@ -42,8 +42,27 @@ def temp_db(monkeypatch, tmp_path):
 
     yield db_path
 
+    # P2-8: 清理测试数据（虽然 tmp_path 会自动删除，但确保连接已关闭）
     if db_path.exists():
         db_path.unlink(missing_ok=True)
+
+
+@pytest.fixture(autouse=True)
+def cleanup_after_test(temp_db):
+    """P2-8: 测试后清理测试数据，防止测试间相互影响。"""
+    yield
+    # 清理测试产生的数据
+    try:
+        conn = sqlite3.connect(str(temp_db))
+        # 清理 test 前缀的数据
+        conn.execute("DELETE FROM memory_tree_chunks WHERE source LIKE 'test:%' OR source LIKE 'smoke:%'")
+        conn.execute("DELETE FROM preference_memory WHERE condition LIKE '%test%' OR rule LIKE '%test%'")
+        conn.execute("DELETE FROM error_memory WHERE task_type LIKE '%test%'")
+        conn.execute("DELETE FROM entities WHERE name LIKE '%test%'")
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass  # 测试数据库可能已被删除
 
 
 @pytest.fixture

@@ -1,17 +1,42 @@
 #!/bin/bash
 # 记忆引擎一键部署脚本
 # 适用于轻量级部署（FAISS + SQLite）
-
 set -euo pipefail
 
-# 版本常量（单一来源）
-VERSION="2.1.0"
+# P3-5: 版本常量（单一来源）
+VERSION="2.1.1"
+
+# P3-5: 备份目录（用于回滚）
+BACKUP_DIR="/tmp/memory-engine-backup-$(date +%Y%m%d_%H%M%S)"
 
 echo "========================================"
 echo "  记忆引擎 ${VERSION} 一键部署"
 echo "  FAISS + SQLite 轻量级架构"
 echo "========================================"
 echo ""
+
+# P3-5: 部署失败回滚机制
+cleanup_on_error() {
+    echo ""
+    echo "❌ 部署失败！"
+    if [ -d "$BACKUP_DIR" ]; then
+        echo "🔄 尝试回滚到备份..."
+        cp -r "$BACKUP_DIR"/* ./ 2>/dev/null || true
+        echo "✅ 回滚完成（可能需要手动检查）"
+    fi
+    exit 1
+}
+trap cleanup_on_error ERR
+
+# P3-5: 备份当前版本（如果存在）
+if [ -d "venv" ] || [ -f "memory.db" ]; then
+    echo "[0/6] 备份当前版本..."
+    mkdir -p "$BACKUP_DIR"
+    [ -d "venv" ] && cp -r venv "$BACKUP_DIR/" || true
+    [ -f "memory.db" ] && cp memory.db "$BACKUP_DIR/" || true
+    [ -f "faiss.index" ] && cp faiss.index "$BACKUP_DIR/" || true
+    echo "✅ 备份完成: $BACKUP_DIR"
+fi
 
 # 1. 检查 Python 版本
 echo "[1/6] 检查 Python 环境..."

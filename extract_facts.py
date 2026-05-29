@@ -18,6 +18,9 @@
 import json
 from typing import Any
 
+# 从 utils 导入共享函数（P2-9）
+from utils import parse_extraction_result, empty_result as _empty_result
+
 
 # ---------------------------------------------------------------------------
 # LLM 提示词模板
@@ -102,53 +105,9 @@ EXTRACTION_PROMPT = """你是一个记忆引擎的事实提取器。
 
 
 # ---------------------------------------------------------------------------
-# 解析和验证
+# 解析和验证（使用 utils 中的共享函数）
 # ---------------------------------------------------------------------------
-
-def parse_extraction_result(llm_output: str) -> dict[str, list[dict[str, Any]]]:
-    """
-    解析 LLM 返回的 JSON，并做基本验证。
-
-    返回格式：
-    {
-        "preferences": [...],
-        "errors": [...],
-        "entities": [...],
-        "relationships": [...]
-    }
-    """
-    # 清理 LLM 输出（去掉可能的 markdown 代码块标记）
-    cleaned = llm_output.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-    cleaned = cleaned.strip()
-
-    try:
-        result = json.loads(cleaned)
-    except json.JSONDecodeError:
-        # 尝试提取 JSON 片段
-        import re
-        match = re.search(r'\{.*\}', cleaned, re.DOTALL)
-        if match:
-            try:
-                result = json.loads(match.group())
-            except json.JSONDecodeError:
-                return _empty_result()
-        else:
-            return _empty_result()
-
-    # 确保所有键都存在
-    for key in ["preferences", "errors", "entities", "relationships"]:
-        if key not in result:
-            result[key] = []
-
-    return result
-
-
-def _empty_result() -> dict:
-    return {"preferences": [], "errors": [], "entities": [], "relationships": []}
+# parse_extraction_result 和 _empty_result 已移至 utils.py
 
 
 # ---------------------------------------------------------------------------
