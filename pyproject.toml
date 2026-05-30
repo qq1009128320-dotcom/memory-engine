@@ -31,7 +31,7 @@ dependencies = [
     # Embedding model (all-MiniLM-L6-v2, 384-dim, ~80MB)
     "sentence-transformers>=3.0.0,<3.1.0",
     # Numerical computation (P3-2: 与 requirements.txt 保持一致)
-    "numpy>=1.26.0,<2.0",
+    "numpy>=2.2.6,<3.0",
     # TTL in-memory cache (no Redis needed)
     "cachetools>=5.3.0,<5.4.0",
     # HuggingFace Hub (model download/cache)
