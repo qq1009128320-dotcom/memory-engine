@@ -37,7 +37,7 @@ dependencies = [
     # HuggingFace Hub (model download/cache)
     "huggingface-hub>=0.25.0,<0.26.0",
     # ONNX runtime (embedding inference)
-    "onnxruntime>=1.18,<2.0",
+    "onnxruntime>=1.24.3,<2.0",
     # HTTP client (DeepSeek API + Feishu integration)
     "httpx>=0.27.0,<0.28.0",
     # Environment management (.env file loading)
