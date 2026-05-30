@@ -51,7 +51,7 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.4",
     "mypy>=1.10",
-    "pip-audit>=2.7",
+    "pip-audit>=2.10.0",
 ]
 
 [project.urls]
