@@ -54,15 +54,16 @@ def cleanup_after_test(temp_db):
     # P2-5: 检查文件是否存在，避免 FileNotFoundError
     if not Path(temp_db).exists():
         return
-    
+
     # 清理测试产生的数据
+    # P3-⑦ 修复: 只清理明确的测试前缀，避免误删生产数据
     try:
         conn = sqlite3.connect(str(temp_db))
-        # 清理 test 前缀的数据
-        conn.execute("DELETE FROM memory_tree_chunks WHERE source LIKE 'test:%' OR source LIKE 'smoke:%'")
-        conn.execute("DELETE FROM preference_memory WHERE condition LIKE '%test%' OR rule LIKE '%test%'")
-        conn.execute("DELETE FROM error_memory WHERE task_type LIKE '%test%'")
-        conn.execute("DELETE FROM entities WHERE name LIKE '%test%'")
+        conn.execute("DELETE FROM memory_tree_chunks WHERE source LIKE 'test:%' OR source LIKE 'smoke:%' OR source LIKE 'audit:%' OR source LIKE 'int_%' OR source LIKE 'cov:%' OR source LIKE 'flow:%' OR source LIKE 'stats:%' OR source LIKE 'upgrade_%' OR source LIKE 'vector_%' OR source LIKE 'restart_%' OR source LIKE 'dedup_%' OR source LIKE 'flow_%'")
+        conn.execute("DELETE FROM preference_memory WHERE condition LIKE '%test%' OR rule LIKE '%test%' OR condition LIKE '%audit_test%'")
+        conn.execute("DELETE FROM error_memory WHERE task_type LIKE '%test%' OR task_type LIKE '%int_%' OR task_type LIKE '%upgrade_%' OR task_type LIKE '%cov%'")
+        conn.execute("DELETE FROM entities WHERE name LIKE '%test%' OR (scope = 'personal' AND name LIKE '%Test%')")
+        conn.execute("DELETE FROM relationships WHERE scope = 'personal' AND (source_id IN (SELECT id FROM entities WHERE name LIKE '%test%' OR name LIKE '%Test%'))")
         conn.commit()
         conn.close()
     except Exception:

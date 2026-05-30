@@ -32,6 +32,11 @@ def main():
         if not tmp_file.exists():
             print(f"ERROR: input file not found: {args.input}", file=sys.stderr)
             sys.exit(1)
+        # P3-⑤ 修复: 检查文件非空
+        if tmp_file.stat().st_size == 0:
+            print(f"WARNING: input file is empty: {args.input}", file=sys.stderr)
+            print("Skipping extraction.")
+            return
     else:
         # No input provided — skip silently (cron mode, no data)
         print("No input file specified. Skipping extraction.")

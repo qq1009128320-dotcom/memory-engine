@@ -50,13 +50,14 @@ def server(test_db):
     """导入 memory_server 模块。"""
     import importlib
     import config
+    import memory_server as ms  # P2-8: 先导入模块，再 reload
     importlib.reload(config)
     # P0-3: 初始化数据库，确保测试间状态隔离
     from memory_server import _init_db
     _init_db()
 
-    importlib.reload(memory_server)
-    return memory_server
+    importlib.reload(ms)
+    return ms
 
 
 class TestMemoryTree:
@@ -353,10 +354,11 @@ class TestFAISSIntegrity:
 
         # 模拟重启：强制重载 FAISS index
         import memory_server as ms
-    importlib.reload(memory_server)
-    # P0-3: 初始化数据库，确保测试间状态隔离
-    from memory_server import _init_db
-    _init_db()
+        import importlib
+        importlib.reload(ms)
+        # P0-3: 初始化数据库，确保测试间状态隔离
+        from memory_server import _init_db
+        _init_db()
         ms._faiss_index = None
         ms._faiss_id_map = {}
         ms._next_faiss_id = 0

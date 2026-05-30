@@ -57,7 +57,8 @@ EXTRACTION_PROMPT = """你是一个记忆引擎的事实提取器。
 - 只输出【之前没有提取过的】事实
 - 如果这段对话没有新事实，输出空数组
 - 事实要具体、可验证、不包含推测
-- 必须输出纯 JSON，不要 markdown 标记
+- P3-② 修复: 必须输出纯 JSON，不要 markdown 标记，不要使用 ```json ... ``` 代码块
+- 直接输出 JSON 字符串，不要任何前缀或后缀文字
 
 输出格式（严格的 JSON）：
 {{
@@ -148,11 +149,29 @@ def to_mcp_calls(extracted: dict) -> list[dict[str, Any]]:
             },
         })
 
+    # P3-③ 修复: 过滤 LLM 输出的非法 entity type 和 relation
+    _VALID_ENTITY_TYPES = {"person", "department", "client", "policy", "document", "field", "project"}
+    _VALID_RELATIONS = {"belongs_to", "manages", "alias_of", "depends_on", "owns", "approves", "works_in"}
+
     for ent in extracted.get("entities", []):
+        ent_type = ent.get("type", "document")
+        if ent_type not in _VALID_ENTITY_TYPES:
+            # LLM 输出了非法类型，尝试映射到最接近的合法类型
+            _type_mapping = {
+                "company": "client", "organization": "department",
+                "team": "department", "group": "department",
+                "system": "project", "tool": "project",
+            }
+            ent_type = _type_mapping.get(ent_type.lower(), "document")
+            import logging
+            logging.getLogger("extract_facts").debug(
+                "Entity type '%s' mapped to '%s'", ent.get("type"), ent_type
+            )
+
         calls.append({
             "tool": "entity_add",
             "arguments": {
-                "type": ent.get("type", "document"),   # 默认 document，在允许列表中
+                "type": ent_type,
                 "name": ent.get("name", ""),
                 "aliases": json.dumps(ent.get("aliases", []), ensure_ascii=False),
                 "properties": json.dumps(ent.get("properties", {}), ensure_ascii=False),
@@ -161,6 +180,20 @@ def to_mcp_calls(extracted: dict) -> list[dict[str, Any]]:
         })
 
     for rel in extracted.get("relationships", []):
+        relation = rel.get("relation", "")
+        if relation not in _VALID_RELATIONS:
+            # LLM 输出了非法关系，尝试映射
+            _rel_mapping = {
+                "uses": "depends_on", "hosts": "depends_on",
+                "part_of": "belongs_to", "属于": "belongs_to",
+                "reports_to": "manages", "registered_for": "depends_on",
+            }
+            relation = _rel_mapping.get(relation.lower(), "depends_on")
+            import logging
+            logging.getLogger("extract_facts").debug(
+                "Relation '%s' mapped to '%s'", rel.get("relation"), relation
+            )
+
         calls.append({
             "tool": "entity_link",
             "arguments": {
@@ -168,7 +201,7 @@ def to_mcp_calls(extracted: dict) -> list[dict[str, Any]]:
                 "source_type": rel.get("source_type", ""),
                 "target_name": rel.get("target", ""),
                 "target_type": rel.get("target_type", ""),
-                "relation": rel.get("relation", ""),
+                "relation": relation,
                 "scope": rel.get("scope", "personal"),
             },
         })

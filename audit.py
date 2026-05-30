@@ -11,6 +11,11 @@ os.environ.setdefault('DEEPSEEK_API_KEY', os.environ.get('DEEPSEEK_API_KEY', 'te
 fd, tmpdb = tempfile.mkstemp(suffix='.db')
 os.close(fd)
 os.environ['MEMORY_DB_PATH'] = tmpdb
+# P3-⑥ 修复: 设置临时 FAISS 索引路径，避免污染生产索引
+fd_faiss, tmp_faiss = tempfile.mkstemp(suffix='.index')
+os.close(fd_faiss)
+os.environ['FAISS_INDEX_PATH'] = tmp_faiss
+
 conn = sqlite3.connect(tmpdb)
 conn.executescript(open(ROOT / 'schema.sql').read())
 conn.commit()

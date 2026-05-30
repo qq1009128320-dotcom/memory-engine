@@ -13,9 +13,8 @@ import os
 import sqlite3
 import subprocess
 import sys
-import logging
-logger = logging.getLogger("auto_fetch")
 import time
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,16 +25,26 @@ sys.path.insert(0, str(ROOT))
 from config import DB_PATH, FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENABLED
 from utils import now as _now, sha256 as _sha256
 
+# 使用 memory_engine 命名空间的 logger，自动启用脱敏过滤器
+logger = logging.getLogger("memory_engine.auto_fetch")
+
 
 # ---------------------------------------------------------------------------
 # 同步状态管理
 # ---------------------------------------------------------------------------
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH), timeout=15)
+    """获取 SQLite 连接并应用完整优化配置。"""
+    conn = sqlite3.connect(str(DB_PATH), timeout=15, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=-128000")  # 128MB
+    conn.execute("PRAGMA temp_store=MEMORY")
+    conn.execute("PRAGMA mmap_size=134217728")  # 128MB
     conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute("PRAGMA page_size=4096")
     return conn
 
 
@@ -117,6 +126,7 @@ def sync_feishu() -> dict[str, int]:
         return {"skipped": "FEISHU_ENABLED=0"}
 
     # 检查 lark-cli 是否可用
+    # P2-⑩ 修复: 提供更详细的错误提示
     lark_bin = os.path.expanduser("~/.hermes/node/bin/lark-cli")
     if not os.path.exists(lark_bin):
         # 尝试 PATH 中的 lark-cli
@@ -124,13 +134,15 @@ def sync_feishu() -> dict[str, int]:
             subprocess.run(["lark-cli", "auth", "status"], capture_output=True, timeout=5)
             lark_bin = "lark-cli"
         except (FileNotFoundError, subprocess.TimeoutExpired):
-            _update_sync_status("feishu", "failed", error="lark-cli not found or not authorized")
+            _update_sync_status("feishu", "failed",
+                error="lark-cli not found. Install: npm install -g @larksuite/lark-cli or set ~/.hermes/node/bin/lark-cli")
             return {"error": "lark-cli not available"}
 
     try:
         # 同步最近文档列表
+        # P2-4 修复: lark-cli v2 使用 "drive files list" 替代 "doc list"
         result = subprocess.run(
-            [lark_bin, "doc", "list", "--limit", "20", "--json"],
+            [lark_bin, "drive", "files", "list", "--limit", "20", "--json", "--type", "document"],
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode == 0:
@@ -138,12 +150,12 @@ def sync_feishu() -> dict[str, int]:
                 docs_raw = json.loads(result.stdout)
                 docs = docs_raw if isinstance(docs_raw, list) else docs_raw.get("items", [])
                 for doc in docs:
-                    doc_id = doc.get("id") or doc.get("document_id", "")
+                    doc_id = doc.get("id") or doc.get("token") or doc.get("document_id", "")
                     title = doc.get("title") or doc.get("name", "未命名文档")
                     if doc_id:
-                        # 获取文档内容
+                        # 获取文档内容 - 使用 docs +fetch 替代 doc get
                         content_result = subprocess.run(
-                            [lark_bin, "doc", "get", doc_id, "--json"],
+                            [lark_bin, "docs", "+fetch", "--doc", doc_id, "--json"],
                             capture_output=True, text=True, timeout=30,
                         )
                         if content_result.returncode == 0:
@@ -158,7 +170,6 @@ def sync_feishu() -> dict[str, int]:
                             counts["docs"] += 1
             except json.JSONDecodeError as e:
                 counts["errors"] += 1
-                    logger.warning("文件同步失败 %s: %s", file_path.name if "file_path" in dir() else "unknown", e)
                 logger.warning("JSON 解析失败: %s", e)
 
         # 同步多维表格
@@ -187,7 +198,6 @@ def sync_feishu() -> dict[str, int]:
                             counts["tables"] += 1
             except json.JSONDecodeError as e:
                 counts["errors"] += 1
-                    logger.warning("文件同步失败 %s: %s", file_path.name if "file_path" in dir() else "unknown", e)
                 logger.warning("JSON 解析失败: %s", e)
 
         _update_sync_status("feishu", "success", items=counts["docs"] + counts["tables"])
@@ -195,11 +205,9 @@ def sync_feishu() -> dict[str, int]:
     except subprocess.TimeoutExpired:
         _update_sync_status("feishu", "failed", error="timeout")
         counts["errors"] += 1
-                    logger.warning("文件同步失败 %s: %s", file_path.name if "file_path" in dir() else "unknown", e)
     except Exception as e:
         _update_sync_status("feishu", "failed", error=str(e))
         counts["errors"] += 1
-                    logger.warning("文件同步失败 %s: %s", file_path.name if "file_path" in dir() else "unknown", e)
         logger.error("飞书同步失败: %s", e)
     return counts
 
@@ -215,9 +223,15 @@ def sync_local_files(directories: list[str] | None = None) -> dict[str, int]:
     """
     counts = {"files": 0, "errors": 0}
 
+    # P2-⑪ 修复: 默认目录为空时发出警告
     if directories is None:
-        # 默认扫描的目录（按需配置）
         directories = []
+        if not os.getenv("AUTO_FETCH_LOCAL_DIRS"):
+            import logging
+            logging.getLogger("auto_fetch").warning(
+                "AUTO_FETCH_LOCAL_DIRS 未配置，本地文件同步将不扫描任何目录。"
+                "设置环境变量以启用本地文件同步。"
+            )
 
     for directory in directories:
         # P1-2: 路径遍历防护 - 解析绝对路径并验证文件在目录内
@@ -228,25 +242,39 @@ def sync_local_files(directories: list[str] | None = None) -> dict[str, int]:
 
         for file_path in base_path.rglob("*"):
             # 确保文件在 base_path 内（防止软链接越界）
+            # P1-1: 路径遍历防护 - 确保文件在预期目录内
             try:
                 file_path.resolve().relative_to(base_path)
             except ValueError:
-                logger.warning("跳过越界文件（路径遍历防护）: %s", file_path)
+                logger.warning("跳过越界文件（路径遍历防护）: %s (resolve=%s)",
+                             file_path, file_path.resolve())
                 continue
 
             if file_path.is_file() and file_path.suffix in (".md", ".txt", ".csv", ".json"):
                 try:
                     content = file_path.read_text(encoding="utf-8", errors="replace")
+                    # P2-⑫ 修复: 结构化文件完整读取，文本文件截断
+                    if file_path.suffix in (".json", ".csv"):
+                        # 尝试完整解析，如果超过限制则截断但记录警告
+                        if len(content) > 50000:
+                            import logging
+                            logging.getLogger("auto_fetch").warning(
+                                "文件 %s 超过 50000 字符（%d），已截断",
+                                file_path.name, len(content)
+                            )
+                            content = content[:50000]
+                    else:
+                        content = content[:50000]
+
                     _ingest_to_memory_tree(
                         source=f"file:{file_path.name}",  # 只记录文件名，不包含完整路径
                         source_type="file",
                         title=file_path.name,
-                        content=content[:50000],
+                        content=content,
                     )
                     counts["files"] += 1
                 except Exception as e:
                     counts["errors"] += 1
-                    logger.warning("文件同步失败 %s: %s", file_path.name if "file_path" in dir() else "unknown", e)
 
     _update_sync_status("local_files", "success", items=counts["files"])
     return counts

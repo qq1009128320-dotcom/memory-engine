@@ -16,8 +16,9 @@ StartLimitBurst=5
 StartLimitIntervalSec=60
 
 # 资源限制
-MemoryHigh=1G
-MemoryMax=2G
+# P3-⑪ 修复: MemoryHigh < MemoryMax，峰值 RSS 可能达到 ~1.2GB
+MemoryHigh=1536M
+MemoryMax=2560M
 CPUQuota=200%
 
 # 日志
@@ -25,9 +26,11 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=memory-engine
 
-# P3-7: 添加关键环境变量
+# P3-5: 添加关键环境变量
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+# P3-3 修复: 使用 %i 或自定义路径，部署时通过 drop-in 覆盖
+# 默认值，可通过 /etc/systemd/system/memory-engine.service.d/override.conf 覆盖
 EnvironmentFile=/opt/memory-engine/.env
 
 [Install]

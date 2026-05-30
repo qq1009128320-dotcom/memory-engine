@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS memory_tree_chunks (
     importance_score FLOAT DEFAULT 0.5,
     entity_count   INTEGER DEFAULT 0,
     faiss_id       INTEGER DEFAULT -1,
+    is_indexed     INTEGER DEFAULT 0,   -- P0-1: FAISS 索引同步标记，1=已索引，0=待索引
     metadata       JSON,
     created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -143,3 +144,5 @@ CREATE TABLE IF NOT EXISTS sync_status (
     error_message  TEXT,
     updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- P2-⑩ 修复: 为 sync_status 添加查询索引
+CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_status(status, last_sync_at);

@@ -4,12 +4,24 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# P3-4: 动态检测 venv，优先使用当前环境的 Python
+# P3-1: 动态检测 venv，优先使用当前环境的 Python
 if [ -f "$SCRIPT_DIR/venv/bin/python3" ]; then
     VENV_PYTHON="$SCRIPT_DIR/venv/bin/python3"
+    # 验证 venv Python 版本
+    PY_VERSION=$("$VENV_PYTHON" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    if [ "$(printf '%s\n' "3.10" "$PY_VERSION" | sort -V | head -n1)" != "3.10" ]; then
+        echo "⚠️  venv Python 版本不足：需要 >= 3.10，当前是 $PY_VERSION"
+    fi
 elif command -v python3 &>/dev/null; then
     VENV_PYTHON="python3"
     echo "⚠️  未检测到 venv，使用系统 Python"
+    # 验证系统 Python 版本
+    PY_VERSION=$("$VENV_PYTHON" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    if [ "$(printf '%s\n' "3.10" "$PY_VERSION" | sort -V | head -n1)" != "3.10" ]; then
+        echo "❌ 系统 Python 版本不足：需要 >= 3.10，当前是 $PY_VERSION"
+        echo "   建议：python3 -m venv venv && source venv/bin/activate"
+        exit 1
+    fi
 else
     echo "❌ 未找到 Python3，请安装"
     exit 1

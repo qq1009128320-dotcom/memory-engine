@@ -104,7 +104,10 @@ class Metrics:
             logging.getLogger("memory_engine").debug("Metrics persist failed (non-fatal)")
 
     def _load_persisted(self):
-        """启动时从磁盘恢复上次指标。"""
+        """启动时从磁盘恢复上次指标。
+
+        P2-④ 修复: 处理空文件、损坏 JSON 等边缘情况。
+        """
         try:
             from config import ROOT
             path = ROOT / ".metrics.json"
@@ -116,20 +119,40 @@ class Metrics:
                     has_fcntl = True
                 except ImportError:
                     has_fcntl = False
-                
+
                 with open(path, "r") as f:
                     if has_fcntl:
                         fcntl.flock(f.fileno(), fcntl.LOCK_SH)
-                    data = json.loads(f.read())
+                    raw = f.read().strip()
+                    if not raw:
+                        # P2-④ 修复: 空文件，视为无历史数据
+                        return
+                    data = json.loads(raw)
                 if has_fcntl:
                     fcntl.flock(f.fileno(), fcntl.LOCK_UN)
                 self.request_count = data.get("requests", 0)
                 self.error_count = data.get("errors", 0)
                 self.llm_call_count = data.get("llm_calls", 0)
                 self.llm_error_count = data.get("llm_errors", 0)
+        except json.JSONDecodeError:
+            # P2-④ 修复: JSON 损坏，记录警告并重置
+            import logging
+            logging.getLogger("memory_engine").warning(
+                ".metrics.json 文件损坏，已重置指标"
+            )
         except Exception:
+            pass
+        finally:
+            # 确保至少初始化到默认值
+            if self.request_count == 0 and self.error_count == 0:
+                pass  # 已经是默认值
+
+    def reset(self):
+        """P3-6 修复: 重置所有指标计数器（用于长期运行服务的定期清零）。"""
+        with self._lock:
             self.request_count = 0
             self.error_count = 0
+            self.total_latency_ms = 0.0
             self.llm_call_count = 0
             self.llm_error_count = 0
 
@@ -138,11 +161,20 @@ metrics = Metrics()
 
 
 def start_metrics_persist_thread(interval: int = 300):
-    """启动后台线程，每 interval 秒持久化指标。"""
+    """启动后台线程，每 interval 秒持久化指标。
+
+    P2-⑤ 修复: 添加错误处理，避免异常静默吞噬。
+    """
     def _loop():
         while True:
             time.sleep(interval)
-            metrics.persist()
+            try:
+                metrics.persist()
+            except Exception as e:
+                import logging
+                logging.getLogger("memory_engine").warning(
+                    "Metrics persist failed (non-fatal): %s", e
+                )
     t = threading.Thread(target=_loop, daemon=True)
     t.start()
 

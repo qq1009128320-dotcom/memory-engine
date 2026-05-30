@@ -17,7 +17,8 @@ from datetime import datetime, timedelta
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = os.path.join(PROJECT_DIR, "memory.db")
 FAISS_PATH = os.path.join(PROJECT_DIR, "faiss.index")
-BACKUP_DIR = os.path.join(PROJECT_DIR, "backups")
+# P3-⑫ 修复: 支持 BACKUP_DIR 环境变量覆盖
+BACKUP_DIR = os.getenv("BACKUP_DIR", os.path.join(PROJECT_DIR, "backups"))
 RETENTION_DAYS = 30
 
 def main():

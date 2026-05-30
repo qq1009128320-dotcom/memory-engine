@@ -173,18 +173,21 @@ class TestCheckConfig:
         assert missing == []
 
     def test_api_key_not_set_at_all(self, monkeypatch):
-        """When DEEPSEEK_API_KEY is not set in env, check_config reports missing.
-        
-        Note: .env file may restore the key during reload, making this a soft check.
+        """When DEEPSEEK_API_KEY is not set, check_config reports missing.
+
+        P3-⑧ 修复: 直接检查 check_config 的 API key 检测逻辑。
         """
-        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-
         import config
-        import importlib
-        importlib.reload(config)
-
-        missing = config.check_config()
-        # If .env file provides the key, missing will be 0; otherwise 1
-        assert len(missing) in (0, 1)
-        if missing:
+        # 临时清空 LLM_API_KEY 和 SKIP_API_KEY_CHECK
+        original_key = config.LLM_API_KEY
+        original_skip = os.getenv("SKIP_API_KEY_CHECK")
+        config.LLM_API_KEY = ""
+        monkeypatch.delenv("SKIP_API_KEY_CHECK", raising=False)
+        try:
+            missing = config.check_config()
+            assert len(missing) >= 1, "Expected missing API key to be detected"
             assert any("DEEPSEEK_API_KEY" in m for m in missing)
+        finally:
+            config.LLM_API_KEY = original_key
+            if original_skip:
+                monkeypatch.setenv("SKIP_API_KEY_CHECK", original_skip)
