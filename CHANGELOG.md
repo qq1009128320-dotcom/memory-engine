@@ -6,6 +6,29 @@
 
 ---
 
+## [v2.2.0] - 2026-05-30（生产就绪版）
+
+### ✅ 本次修复
+
+#### P0 - 严重问题
+- **数据库 schema 缺失**: 添加 `is_indexed` 列到 `memory_tree_chunks` 表，修复 `memory_tree_vector_search` 查询失败
+- **迁移系统**: 添加 `_migrate_005_add_is_indexed_column` 迁移脚本
+
+#### P1 - 高危问题
+- **统一 `_get_conn()` 配置**: `auto_fetch.py` 和 `summary_tree.py` 添加完整 8 项 PRAGMA 配置（foreign_keys, synchronous, cache_size, temp_store, mmap_size, page_size）
+- **日志脱敏**: `auto_fetch.py` 和 `summary_tree.py` 改为使用 `memory_engine.*` 命名空间 logger，自动启用 `SensitiveDataFilter` 脱敏过滤器
+
+#### P2 - 中等问题
+- **删除重复代码**: `test_21_tools.py` 中重复的 `_raises` 函数（2 处 → 1 处）
+
+### 验证结果
+- **测试**: 28/28 通过 ✅
+- **性能**: 向量搜索 6.7ms, 关键词搜索 0.3ms ✅
+- **数据库**: 完整性 ok, FAISS 同步 54/54 ✅
+- **综合评级**: A (生产就绪)
+
+---
+
 ## [v2.1.2] - 2026-05-30（全面修复版）
 
 ### 🔴 严重修复 (P0)

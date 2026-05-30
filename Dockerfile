@@ -1,6 +1,6 @@
 # 记忆引擎 — 生产级 Dockerfile
-# 构建: docker build -t memory-engine:v2.1.2 .
-# 运行: docker run -d -p 8765:8765 --env-file .env memory-engine:v2.1.2
+# 构建: docker build -t memory-engine:v2.2.0 .
+# 运行: docker run -d -p 8765:8765 --env-file .env memory-engine:v2.2.0
 #
 # P3-10: 优化项：
 # - 使用多阶段构建（builder + runtime）
