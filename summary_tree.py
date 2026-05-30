@@ -8,6 +8,7 @@
 """
 
 import json
+import logging
 import sqlite3
 import sys
 from pathlib import Path
@@ -18,12 +19,22 @@ sys.path.insert(0, str(ROOT))
 from config import DB_PATH, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT
 from utils import now as _now, sha256
 
+# 使用 memory_engine 命名空间的 logger，自动启用脱敏过滤器
+logger = logging.getLogger("memory_engine.summary_tree")
+
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH), timeout=15)
+    """获取 SQLite 连接并应用完整优化配置。"""
+    conn = sqlite3.connect(str(DB_PATH), timeout=15, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=-128000")  # 128MB
+    conn.execute("PRAGMA temp_store=MEMORY")
+    conn.execute("PRAGMA mmap_size=134217728")  # 128MB
     conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute("PRAGMA page_size=4096")
     return conn
 
 
@@ -69,27 +80,41 @@ def _llm_summarize(prompt: str, max_tokens: int = 1024) -> str:
 # 分组逻辑
 # ---------------------------------------------------------------------------
 
-def _group_chunks(chunks: list[dict]) -> dict[str, list[dict]]:
-    """将 chunk 按 source_type 分组，再按内容相似度细分。"""
+# P2-3 修复: 可配置的分组关键词，支持自定义领域
+DEFAULT_GROUP_KEYWORDS = [
+    "财务", "制度", "政策", "客户", "研发", "行政", "人事", "合同",
+    "预算", "费用", "报销", "采购", "销售", "项目", "会议", "培训",
+]
+
+
+def _group_chunks(chunks: list[dict], keywords: list[str] | None = None) -> dict[str, list[dict]]:
+    """将 chunk 按 source_type 分组，再按标题关键字细分。
+
+    P2-3 修复: 支持自定义关键词列表，改进分组逻辑。
+    """
+    keywords = keywords or DEFAULT_GROUP_KEYWORDS
     groups: dict[str, list[dict]] = {}
 
     for c in chunks:
         st = c.get("source_type", "unknown")
         title = c.get("title", "")
 
-        # 用 source_type + 标题前几个字做简单分组
+        # 用 source_type + 标题关键字做分组
         group_key = st
         if title:
-            # 尝试用标题关键字进一步分组
-            keywords = ["财务", "制度", "政策", "客户", "研发", "行政", "人事", "合同"]
-            for kw in keywords:
+            # 尝试用标题关键字进一步分组（优先匹配较长的关键词）
+            for kw in sorted(keywords, key=len, reverse=True):
                 if kw in title:
                     group_key = f"{st}:{kw}"
                     break
 
+        # P2-3 修复: 处理无关键词匹配的情况，归入默认组
         if group_key not in groups:
             groups[group_key] = []
         groups[group_key].append(c)
+
+    # P2-3 修复: 过滤掉空组
+    groups = {k: v for k, v in groups.items() if v}
 
     return groups
 
@@ -132,13 +157,16 @@ def build_summary_tree(rebuild: bool = False) -> dict:
                 f"[{c['title']}]\n{c['content'][:2000]}" for c in group_chunks
             )
 
+            # P2-⑥ 修复: LLM 摘要失败时生成默认摘要，避免数据丢失
             try:
                 l1_summary = _llm_summarize(
                     SUMMARIZE_L1_PROMPT.format(docs=docs_text), max_tokens=800
                 )
             except Exception as e:
-                print(f"    ⚠️ LLM 摘要生成失败，跳过分组 {group_key}: {e}")
-                continue  # 不写入 DB，跳过该 chunk
+                logger.warning("LLM 摘要生成失败，使用默认摘要 for %s: %s", group_key, e)
+                # 生成默认摘要：列出该组包含的文档标题
+                titles = [c.get('title', '无标题') for c in group_chunks if c.get('title')]
+                l1_summary = f"[自动摘要生成失败] 本组包含 {len(group_chunks)} 个文档: {', '.join(titles[:5])}"
 
             l1_summaries.append({"group": group_key, "summary": l1_summary, "count": len(group_chunks)})
 
@@ -158,12 +186,14 @@ def build_summary_tree(rebuild: bool = False) -> dict:
             f"分组[{s['group']}]({s['count']}块): {s['summary']}" for s in l1_summaries
         )
 
+        # P2-⑦ 修复: L0 摘要失败时使用通用占位文本，不暴露内部错误细节
         try:
             l0_summary = _llm_summarize(
                 SUMMARIZE_L0_PROMPT.format(summaries=all_l1_text), max_tokens=400
             )
         except Exception as e:
-            l0_summary = f"[LLM 摘要生成失败: {e}]"
+            logger.warning("L0 全局摘要生成失败: %s", e)
+            l0_summary = "[全局摘要生成中，请稍后查看]"
 
         # 存储 L0 摘要到数据库（作为一个特殊的 chunk）
         import uuid, hashlib

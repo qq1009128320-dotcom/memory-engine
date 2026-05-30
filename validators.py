@@ -24,15 +24,33 @@ def validate_length(value: str, name: str, max_len: int = 50000) -> str:
     return value
 
 
-def validate_safe_text(value: str, name: str) -> str:
-    """过滤特殊字符，防止注入和破坏。"""
+def validate_safe_text(value: str, name: str, *, clean: bool = True) -> str:
+    """过滤特殊字符，防止注入和破坏。
+
+    Args:
+        value: 输入字符串
+        name: 参数名（用于错误信息）
+        clean: 如果 True，自动清理非法字符并返回清理后的值；
+               如果 False，发现非法字符直接抛异常（严格模式）
+
+    P2-③ 修复: 默认 clean=True，返回清理后的值而非抛异常。
+    """
     # 移除 NULL 字节和不可打印控制字符（保留换行和制表符）
     # P1-3: 扩展控制字符范围，包含 DEL 和 C1 控制字符
     cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', value)
     # 过滤 Unicode 零宽字符（U+200B-U+200D, U+FEFF）
     cleaned = re.sub(r'[\u200b-\u200d\uFEFF]', '', cleaned)
+
     if cleaned != value:
-        raise ValidationError(f"{name} 包含非法控制字符")
+        if clean:
+            # 自动清理，记录调试日志
+            import logging
+            logging.getLogger("memory_engine").debug(
+                "%s 包含非法控制字符，已自动清理", name
+            )
+        else:
+            raise ValidationError(f"{name} 包含非法控制字符")
+
     return cleaned
 
 
@@ -77,7 +95,7 @@ def validate_scope(value: str) -> str:
         return value
     if value.startswith("team:"):
         import re
-        if not re.match(r"^team:[a-zA-Z0-9_-]+$", value):
+        if not re.match(r"^team:[\w\u4e00-\u9fff-]+$", value):
             raise ValidationError(f"scope 格式无效: {value!r}，team 名称只能包含字母、数字、下划线、连字符")
         return value
     raise ValidationError(f"scope 格式无效: {value!r}，允许: {ALLOWED_SCOPES} 或 'team:<部门>'")

@@ -44,7 +44,7 @@ def parse_extraction_result(text: str) -> dict:
     # 解析 "key: value" 或 "key=value" 格式
     result = {}
     # 匹配 "key: value" 或 "key=value"
-    pattern = r'(\w+)\s*[:=]\s*([^,;]+)'
+    pattern = r'([\w\u4e00-\u9fff]+)\s*[:=]\s*([^,;]+)'
     matches = re.findall(pattern, text)
     for key, value in matches:
         result[key.strip()] = value.strip()

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "memory-engine"
-version = "2.1.1"
+version = "2.1.2"
 description = "Enterprise-grade four-layer agent memory system — Memory Tree + Preferences + Error Correction + Knowledge Graph"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,7 +30,7 @@ dependencies = [
     "faiss-cpu>=1.7.4,<1.8.0",
     # Embedding model (all-MiniLM-L6-v2, 384-dim, ~80MB)
     "sentence-transformers>=3.0.0,<3.1.0",
-    # Numerical computation
+    # Numerical computation (P3-2: 与 requirements.txt 保持一致)
     "numpy>=1.26.0,<2.0",
     # TTL in-memory cache (no Redis needed)
     "cachetools>=5.3.0,<5.4.0",
@@ -61,7 +61,9 @@ Documentation = "https://github.com/qq1009128320-dotcom/memory-engine#readme"
 Changelog = "https://github.com/qq1009128320-dotcom/memory-engine/blob/main/CHANGELOG.md"
 
 [project.scripts]
-memory-engine = "memory_server:main"
+# P3-1 修复: memory_server 没有 main() 函数，入口是 if __name__ == "__main__"
+# 移除无效 entry point，改为文档说明启动方式
+# memory-engine = "memory_server:main"  # 已移除，使用: python -m memory_server 或直接运行
 
 [tool.setuptools]
 py-modules = ["memory_server", "config", "validators", "log_utils", "observability"]

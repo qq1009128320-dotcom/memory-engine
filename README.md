@@ -3,7 +3,7 @@
 [![CI](https://github.com/qq1009128320-dotcom/memory-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/qq1009128320-dotcom/memory-engine/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.1.1-blue)](https://github.com/qq1009128320-dotcom/memory-engine/releases)
+[![Version](https://img.shields.io/badge/version-2.1.2-blue)](https://github.com/qq1009128320-dotcom/memory-engine/releases)
 [![Tests](https://img.shields.io/badge/tests-84%20passed-brightgreen)](https://github.com/qq1009128320-dotcom/memory-engine/actions)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
@@ -64,7 +64,7 @@ graph TD
 | L3 | 纠错记忆 | 记住错误，≥3 次自动升级为永久规则 | 独创 |
 | L4 | 知识图谱 | 实体关系 + 三级权限共享 | Zep |
 
-**当前版本：v2.1.1** | **FAISS 索引数：57** | **嵌入模型：all-MiniLM-L6-v2（384 维）** | **FAISS 向量索引**
+**当前版本：v2.1.2** | **FAISS 索引数：57** | **嵌入模型：all-MiniLM-L6-v2（384 维）** | **FAISS 向量索引**
 
 ## 环境要求
 

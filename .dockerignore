@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+
+# Database and indexes (runtime data)
+memory.db
+memory.db-*
+faiss.index
+faiss_id_map.json
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ChromaDB (legacy)
+chromadb/
+
+# Logs
+*.log
+logs/
+
+# Backups
+backups/
+backup_*/
+
+# Environment and secrets
+.env
+*.pid
+
+# Metrics
+.metrics.json
+
+# Test and cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Models (large files, mount at runtime if needed)
+models/
+
+# Git
+.git/
+.gitignore
+
+# Documentation (not needed in container)
+references/
+docs/
+
+# Test files
+tests/
+test_*.py
+audit.py
+
+# CI/CD
+.github/

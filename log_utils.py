@@ -16,16 +16,23 @@ from datetime import datetime, timezone
 
 # 敏感字段正则（匹配 API key、token、password 等）
 # P2-6: 优化脱敏规则，只匹配长字符串（真实密钥通常较长）
+# 增强：添加更多密钥前缀模式，减少误匹配
 _SENSITIVE_PATTERNS = [
     # 匹配 key=value 格式，值至少 20 字符（避免误匹配短文本）
     (re.compile(r'(api_key|apikey|secret|password|token|auth)\s*[:=]\s*["\']?([A-Za-z0-9_\-]{20,})', re.IGNORECASE),
      r'\1=***REDACTED***'),
-    # sk- 开头的密钥，至少 20 字符
-    (re.compile(r'sk-[A-Za-z0-9]{20,}'),
+    # sk- 开头的密钥（DeepSeek/OpenAI 等），至少 20 字符
+    # P2-6: 增强：只匹配 sk- 后跟连续字母数字的组合
+    (re.compile(r'sk-[A-Za-z0-9]{20,}(?![A-Za-z0-9])'),
      'sk-***REDACTED***'),
     # 补充：Bearer token 格式
     (re.compile(r'Bearer\s+[A-Za-z0-9_\-\.]{20,}', re.IGNORECASE),
      'Bearer ***REDACTED***'),
+    # P2-6: 新增：其他常见密钥前缀
+    (re.compile(r'(ghp_|gho_|ghu_|ghs_|ghr_|github_pat_)[A-Za-z0-9_]{20,}'),
+     '***REDACTED***'),
+    (re.compile(r'xox[baprs]-[A-Za-z0-9\-]{10,}-[A-Za-z0-9\-]{10,}'),
+     '***REDACTED***'),  # Slack tokens
 ]
 
 

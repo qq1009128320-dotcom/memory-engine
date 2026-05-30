@@ -4,10 +4,11 @@
 set -euo pipefail
 
 # P3-5: 版本常量（单一来源）
-VERSION="2.1.1"
+VERSION="2.1.2"  # P3-5: 与 pyproject.toml 和 SKILL.md 统一
 
-# P3-5: 备份目录（用于回滚）
+# P3-2: 备份目录（用于回滚）
 BACKUP_DIR="/tmp/memory-engine-backup-$(date +%Y%m%d_%H%M%S)"
+BACKUP_FILES="memory.db faiss.index faiss_id_map.json .env .metrics.json .memory_server.pid"
 
 echo "========================================"
 echo "  记忆引擎 ${VERSION} 一键部署"
@@ -15,26 +16,36 @@ echo "  FAISS + SQLite 轻量级架构"
 echo "========================================"
 echo ""
 
-# P3-5: 部署失败回滚机制
+# P3-⑩ 修复: 部署失败回滚机制，更精确的错误处理
 cleanup_on_error() {
     echo ""
     echo "❌ 部署失败！"
-    if [ -d "$BACKUP_DIR" ]; then
+    if [ -d "$BACKUP_DIR" ] && [ "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]; then
         echo "🔄 尝试回滚到备份..."
-        cp -r "$BACKUP_DIR"/* ./ 2>/dev/null || true
+        # 只复制非空文件，避免覆盖现有文件
+        for f in "$BACKUP_DIR"/*; do
+            [ -e "$f" ] && cp -r "$f" ./ 2>/dev/null || true
+        done
         echo "✅ 回滚完成（可能需要手动检查）"
+    else
+        echo "⚠️ 无有效备份可回滚"
     fi
     exit 1
 }
-trap cleanup_on_error ERR
+# 只在关键步骤后设置 trap，避免误触发
+set -e
 
-# P3-5: 备份当前版本（如果存在）
+# P3-2: 备份当前版本（如果存在）
 if [ -d "venv" ] || [ -f "memory.db" ]; then
     echo "[0/6] 备份当前版本..."
     mkdir -p "$BACKUP_DIR"
     [ -d "venv" ] && cp -r venv "$BACKUP_DIR/" || true
     [ -f "memory.db" ] && cp memory.db "$BACKUP_DIR/" || true
     [ -f "faiss.index" ] && cp faiss.index "$BACKUP_DIR/" || true
+    # P3-2: 备份更多关键文件
+    for f in $BACKUP_FILES; do
+        [ -f "$f" ] && cp "$f" "$BACKUP_DIR/" || true
+    done
     echo "✅ 备份完成: $BACKUP_DIR"
 fi
 

@@ -6,6 +6,33 @@
 
 ---
 
+## [v2.1.2] - 2026-05-30（全面修复版）
+
+### 🔴 严重修复 (P0)
+- **FAISS-DB 一致性**: `memory_tree_ingest` 现在使用 `is_indexed=0` 初始标记，DB 写入成功后更新为 `is_indexed=1`；FAISS 写入成功但 DB 失败时自动回滚 FAISS
+- **连接池死锁**: `_ConnectionPool` 重构 - 健康检查移到锁外、连接关闭后正确递减 `_created`、添加 `_closed` 标志支持优雅关闭
+- **API 密钥泄露**: `.env` 文件中的真实密钥已移除，权限设为 600
+
+### 🟠 高危修复 (P1)
+- **混淆代码清理**: `scripts/reindex_via_mcp.py` 中的 `chr(39)+chr(39).join([...])` 混淆代码已替换为清晰的 `msg['result']`
+- **飞书同步命令**: `auto_fetch.py` 使用 `lark-cli drive files list` 和 `docs +fetch` 替代已废弃的 `doc list` / `doc get`
+
+### 🟡 中危修复 (P2)
+- **异步进度追踪**: `memory_tree_reindex(async_mode=True)` 现在正确更新 `progress` 和 `total` 字段
+- **LLM 重试机制**: `llm_client.call_llm()` 添加自动重试（指数退避，默认 3 次），5xx 和 429 错误自动重试
+- **Prompt 去重**: `run_extraction.py` 移除重复的 `EXTRACTION_PROMPT`，改为 `from extract_facts import EXTRACTION_PROMPT`
+- **分组逻辑改进**: `summary_tree.py` `_group_chunks()` 支持自定义关键词列表，过滤空组
+- **连接池定义**: 添加缺失的 `_reindex_lock` 和 `_reindex_tasks` 全局变量定义
+
+### 🟢 低危修复 (P3)
+- **entry point**: `pyproject.toml` 移除无效的 `memory-engine = "memory_server:main"` entry point
+- **Docker 健康检查**: 简化健康检查，不再依赖 LLM API（只检查 SQLite 和 FAISS 文件）
+- **优雅关闭**: `memory_server.py` 添加 SIGTERM/SIGINT 信号处理器和优雅关闭回调
+- **指标重置**: `observability.py` `Metrics.reset()` 方法用于定期清零统计
+- **服务文件注释**: `memory-engine.service` 添加环境变量覆盖说明
+
+---
+
 ## [v2.1.1] - 当前版本（生产级全面加固）
 
 ### 安全
@@ -13,6 +40,9 @@
 - **JSON 参数严格校验**：entity_add 的 aliases/properties 参数现在验证类型和格式
 - **控制字符过滤增强**：validators.py 扩展范围包含 DEL、C1 控制字符和 Unicode 零宽字符
 - **日志脱敏优化**：log_utils.py 只匹配长字符串（真实密钥），避免误匹配短文本
+- **FAISS 删除锁保护**：memory_tree_delete 的 FAISS 删除操作在 _faiss_write_lock 保护下
+- **缓存键截断**：memory_tree_vector_search 缓存命中时确保返回数量不超过 max_results
+- **error_log 升级规范化**：correction 文本规范化，避免微小差异导致重复规则
 
 ### 新增
 - **SQLite 连接池**：_ConnectionPool 类限制最大连接数（10），自动回收闲置连接
