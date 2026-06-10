@@ -166,7 +166,6 @@ def _migrate_004_add_cascade_delete(conn: sqlite3.Connection) -> None:
     if rows:
         placeholders = ",".join("?" for _ in columns)
         col_names = ",".join(columns)
-        cursor.execute(f"INSERT INTO {temp_table} ({col_names}) VALUES ({placeholders})")
         cursor.executemany(
             f"INSERT INTO {temp_table} ({col_names}) VALUES ({placeholders})", rows
         )
