@@ -9,6 +9,12 @@ auto_fetch.log
 
 # Build / deploy artifacts
 _deploy_temp/
+
+# Runtime test scripts (not for distribution)
+__perf_test.py
+
+# Runtime backups
+backups/
 *.pyc
 *.pyo
 .venv/

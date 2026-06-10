@@ -164,7 +164,7 @@ def to_mcp_calls(extracted: dict) -> list[dict[str, Any]]:
             }
             ent_type = _type_mapping.get(ent_type.lower(), "document")
             import logging
-            logging.getLogger("extract_facts").debug(
+            logging.getLogger("memory_engine.extract_facts").debug(
                 "Entity type '%s' mapped to '%s'", ent.get("type"), ent_type
             )
 
@@ -190,7 +190,7 @@ def to_mcp_calls(extracted: dict) -> list[dict[str, Any]]:
             }
             relation = _rel_mapping.get(relation.lower(), "depends_on")
             import logging
-            logging.getLogger("extract_facts").debug(
+            logging.getLogger("memory_engine.extract_facts").debug(
                 "Relation '%s' mapped to '%s'", rel.get("relation"), relation
             )
 

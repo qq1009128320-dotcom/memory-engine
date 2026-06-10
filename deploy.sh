@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # P3-5: 版本常量（单一来源）
-VERSION="2.1.2"  # P3-5: 与 pyproject.toml 和 SKILL.md 统一
+VERSION="2.2.0"  # P3-5: 与 pyproject.toml 和 SKILL.md 统一
 
 # P3-2: 备份目录（用于回滚）
 BACKUP_DIR="/tmp/memory-engine-backup-$(date +%Y%m%d_%H%M%S)"
