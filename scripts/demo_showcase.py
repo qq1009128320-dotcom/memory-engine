@@ -98,7 +98,8 @@ step(3, "再次搜索验证：")
 r = memory_tree_search("电商推广费用", max_results=3)
 if r:
     result(f"找到匹配记录：{r[0]['title']}")
-    print(f"  📄 {r[0]['summary'][:60]}...")
+    summary = r[0].get('summary', '') or ''
+    print(f"  📄 {summary[:60]}...")
 
 print()
 print("  💡 新知识一旦录入，下次就能被检索到")
