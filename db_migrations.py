@@ -39,7 +39,6 @@ def _migrate_003_create_faiss_id_index(conn: sqlite3.Connection) -> None:
 # 迁移版本列表：(version_id, description, callback)
 # 每个迁移只应用一次，按版本顺序执行
 MIGRATIONS = [
-    ("005_add_is_indexed_column", "Add is_indexed column for FAISS sync tracking", _migrate_005_add_is_indexed_column),
     # v2.1.0: 添加 vector 列到 memory_tree_chunks
     ("001_add_vector_column", "Add vector BLOB column to memory_tree_chunks", _migrate_001_add_vector_column),
     # v2.1.0: 添加 faiss_id 列到 memory_tree_chunks
@@ -48,6 +47,10 @@ MIGRATIONS = [
     ("003_create_faiss_id_index", "Create index on memory_tree_chunks(faiss_id)", _migrate_003_create_faiss_id_index),
     # v2.1.1: 添加级联删除到 relationships 表
     ("004_add_cascade_delete", "Add ON DELETE CASCADE to relationships (rebuild table)", _migrate_004_add_cascade_delete),
+    # v2.2.0: 添加 is_indexed 列到 memory_tree_chunks
+    ("005_add_is_indexed_column", "Add is_indexed column for FAISS sync tracking", _migrate_005_add_is_indexed_column),
+    # v2.2.0: 为所有表的 created_at/updated_at 添加索引
+    ("006_add_timestamp_indexes", "Add indexes on created_at/updated_at for all tables", _migrate_006_add_timestamp_indexes),
 ]
 
 
@@ -186,6 +189,23 @@ def _migrate_004_add_cascade_delete(conn: sqlite3.Connection) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_rel_target ON relationships(target_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_rel_relation ON relationships(relation)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_rel_scope ON relationships(scope)")
+
+
+def _migrate_006_add_timestamp_indexes(conn: sqlite3.Connection) -> None:
+    """v2.2.0: 为所有表的 created_at/updated_at 添加索引。"""
+    indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_mt_created ON memory_tree_chunks(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_mt_updated ON memory_tree_chunks(updated_at)",
+        "CREATE INDEX IF NOT EXISTS idx_pm_created ON preference_memory(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_pm_updated ON preference_memory(updated_at)",
+        "CREATE INDEX IF NOT EXISTS idx_em_created ON error_memory(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_em_updated ON error_memory(updated_at)",
+        "CREATE INDEX IF NOT EXISTS idx_ent_created ON entities(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_ent_updated ON entities(updated_at)",
+        "CREATE INDEX IF NOT EXISTS idx_rel_created ON relationships(created_at)",
+    ]
+    for sql in indexes:
+        conn.execute(sql)
 
 
 def check_schema_integrity(db_path: Path) -> dict[str, str | list[str]]:

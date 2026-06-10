@@ -37,6 +37,8 @@ CREATE INDEX       IF NOT EXISTS idx_mt_source  ON memory_tree_chunks(source_typ
 CREATE INDEX       IF NOT EXISTS idx_mt_score   ON memory_tree_chunks(score DESC);
 CREATE INDEX       IF NOT EXISTS idx_mt_parent  ON memory_tree_chunks(parent_id);
 CREATE INDEX       IF NOT EXISTS idx_mt_faissid ON memory_tree_chunks(faiss_id);
+CREATE INDEX IF NOT EXISTS idx_mt_created ON memory_tree_chunks(created_at);
+CREATE INDEX IF NOT EXISTS idx_mt_updated ON memory_tree_chunks(updated_at);
 
 -- =============================================================================
 -- 第二层：偏好记忆
@@ -65,6 +67,8 @@ CREATE INDEX        IF NOT EXISTS idx_pm_category ON preference_memory(category)
 CREATE INDEX        IF NOT EXISTS idx_pm_scope    ON preference_memory(scope);
 CREATE INDEX        IF NOT EXISTS idx_pm_active   ON preference_memory(is_active);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pm_hash     ON preference_memory(rule_hash);
+CREATE INDEX IF NOT EXISTS idx_pm_created ON preference_memory(created_at);
+CREATE INDEX IF NOT EXISTS idx_pm_updated ON preference_memory(updated_at);
 
 -- =============================================================================
 -- 第三层：纠错记忆
@@ -91,6 +95,8 @@ CREATE TABLE IF NOT EXISTS error_memory (
 CREATE INDEX IF NOT EXISTS idx_em_task     ON error_memory(task_type);
 CREATE INDEX IF NOT EXISTS idx_em_active   ON error_memory(is_resolved);
 CREATE INDEX IF NOT EXISTS idx_em_severity ON error_memory(severity);
+CREATE INDEX IF NOT EXISTS idx_em_created ON error_memory(created_at);
+CREATE INDEX IF NOT EXISTS idx_em_updated ON error_memory(updated_at);
 
 -- =============================================================================
 -- 第四层：知识图谱
@@ -113,6 +119,8 @@ CREATE TABLE IF NOT EXISTS entities (
 CREATE INDEX IF NOT EXISTS idx_ent_type  ON entities(type);
 CREATE INDEX IF NOT EXISTS idx_ent_name  ON entities(name);
 CREATE INDEX IF NOT EXISTS idx_ent_scope ON entities(scope);
+CREATE INDEX IF NOT EXISTS idx_ent_created ON entities(created_at);
+CREATE INDEX IF NOT EXISTS idx_ent_updated ON entities(updated_at);
 
 CREATE TABLE IF NOT EXISTS relationships (
     id         TEXT PRIMARY KEY,
@@ -130,6 +138,7 @@ CREATE INDEX IF NOT EXISTS idx_rel_source   ON relationships(source_id);
 CREATE INDEX IF NOT EXISTS idx_rel_target   ON relationships(target_id);
 CREATE INDEX IF NOT EXISTS idx_rel_relation ON relationships(relation);
 CREATE INDEX IF NOT EXISTS idx_rel_scope    ON relationships(scope);
+CREATE INDEX IF NOT EXISTS idx_rel_created  ON relationships(created_at);
 
 -- =============================================================================
 -- 元数据：同步状态跟踪

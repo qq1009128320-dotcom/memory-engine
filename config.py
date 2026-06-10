@@ -111,7 +111,7 @@ def check_config() -> list[str]:
             logging.getLogger("memory_engine").error(
                 ".env 文件权限为 %o（必须 600），可能泄露敏感信息，拒绝启动", mode
             )
-            errors.append(f".env 文件权限不安全: {mode}（应为 600）")
+            missing.append(f".env 文件权限不安全: {mode}（应为 600）")
     return missing
 
 
