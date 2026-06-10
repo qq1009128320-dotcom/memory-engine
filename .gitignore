@@ -1,5 +1,14 @@
 # Python
 __pycache__/
+
+# Embedding models (auto-downloaded on first run)
+models/all-MiniLM-L6-v2/
+
+# Auto-fetch logs (runtime generated)
+auto_fetch.log
+
+# Build / deploy artifacts
+_deploy_temp/
 *.pyc
 *.pyo
 .venv/
