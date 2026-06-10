@@ -228,7 +228,7 @@ def sync_local_files(directories: list[str] | None = None) -> dict[str, int]:
         directories = []
         if not os.getenv("AUTO_FETCH_LOCAL_DIRS"):
             import logging
-            logging.getLogger("auto_fetch").warning(
+            logging.getLogger("memory_engine.auto_fetch").warning(
                 "AUTO_FETCH_LOCAL_DIRS 未配置，本地文件同步将不扫描任何目录。"
                 "设置环境变量以启用本地文件同步。"
             )
@@ -258,7 +258,7 @@ def sync_local_files(directories: list[str] | None = None) -> dict[str, int]:
                         # 尝试完整解析，如果超过限制则截断但记录警告
                         if len(content) > 50000:
                             import logging
-                            logging.getLogger("auto_fetch").warning(
+                            logging.getLogger("memory_engine.auto_fetch").warning(
                                 "文件 %s 超过 50000 字符（%d），已截断",
                                 file_path.name, len(content)
                             )

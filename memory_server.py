@@ -112,6 +112,13 @@ def _acquire_lock() -> bool:
                 old_pid = int(lock_content[0])
                 old_start = 0
             
+            # P3-11: 如果 PID 文件中的 PID 等于当前进程，直接覆盖（不误判自己）
+            if old_pid == os.getpid():
+                logger.debug("PID file contains our own PID, overwriting")
+                import time
+                PID_FILE.write_text(f"{os.getpid()} {time.time()}")
+                return True
+            
             # 检查进程是否存在
             try:
                 os.kill(old_pid, 0)
@@ -534,13 +541,27 @@ from utils import now as _now, sha256 as _sha256
 
 
 def _row_to_dict(row: sqlite3.Row | None) -> dict | None:
-    """P2-1: 添加完整类型注解。"""
-    return dict(row) if row else None
+    """P2-1: 添加完整类型注解。
+    P3-7/BUG-3: 排除 BLOB 字段（vector），避免 Pydantic JSON 序列化失败。
+    """
+    if row is None:
+        return None
+    d = dict(row)
+    # 排除二进制向量字段，Pydantic 无法序列化 bytes 为 JSON
+    d.pop("vector", None)
+    return d
 
 
 def _rows_to_list(rows: list[sqlite3.Row]) -> list[dict]:
-    """P2-1: 添加完整类型注解。"""
-    return [dict(r) for r in rows]
+    """P2-1: 添加完整类型注解。
+    与 _row_to_dict 一致，排除 BLOB 字段（vector）避免 Pydantic 序列化失败。
+    """
+    result = []
+    for r in rows:
+        d = dict(r)
+        d.pop("vector", None)
+        result.append(d)
+    return result
 
 
 def _escape_like(term: str) -> str:
