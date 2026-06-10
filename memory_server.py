@@ -2101,7 +2101,7 @@ if __name__ == "__main__":
     _wal_thread.start()
     logger.info("WAL checkpoint thread started (interval=%ds)", _WAL_CHECKPOINT_INTERVAL)
     from config import MCP_SERVER_HOST, MCP_SERVER_PORT
-    logger.info("Memory Engine v2.1.2 starting on %s:%d", MCP_SERVER_HOST, MCP_SERVER_PORT)
+    logger.info("Memory Engine v2.2.0 starting on %s:%d", MCP_SERVER_HOST, MCP_SERVER_PORT)
 
     # P3-4: 注册优雅关闭回调
     def _shutdown():
