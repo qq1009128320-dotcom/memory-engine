@@ -50,49 +50,20 @@ except ImportError as e:
 
 def call_llm_extract(conversation_text: str) -> dict:
     """调用 LLM 提取事实。"""
-    import urllib.request
-    import urllib.error
-    
     if not LLM_API_KEY:
         print("⚠️ 警告: LLM_API_KEY 未配置，跳过提取", file=sys.stderr)
         return _empty_result()
-    
-    # 构建请求
+
     prompt = EXTRACTION_PROMPT.format(conversation=conversation_text)
-    
-    url = f"{LLM_BASE_URL.rstrip('/')}/v1/chat/completions"
-    
-    payload = {
-        "model": LLM_MODEL,
-        "messages": [
-            {"role": "system", "content": "你是一个记忆引擎的事实提取器，只输出纯JSON。"},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.1,
-        "max_tokens": LLM_MAX_TOKENS,
-    }
-    
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {LLM_API_KEY}",
-    }
-    
+
     try:
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode('utf-8'),
-            headers=headers,
-            method='POST'
+        from llm_client import call_llm as llm_call
+        content = llm_call(
+            prompt,
+            system_prompt="你是一个记忆引擎的事实提取器，只输出纯JSON。",
+            temperature=0.1,
         )
-        
-        with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
-            return parse_extraction_result(content)
-            
-    except urllib.error.HTTPError as e:
-        print(f"❌ HTTP 错误: {e.code} - {e.reason}", file=sys.stderr)
-        return _empty_result()
+        return parse_extraction_result(content)
     except Exception as e:
         print(f"❌ LLM 调用失败: {e}", file=sys.stderr)
         return _empty_result()

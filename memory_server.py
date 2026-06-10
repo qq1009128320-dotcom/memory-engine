@@ -6,7 +6,7 @@ Agent 记忆引擎 — MCP Server
 通过 MCP 协议接入任何 Agent 框架（Hermes / Claude / 自定义）。
 FastMCP 3.x, Python 3.10+, SQLite.
 
-v2.1.2: 全面修复版（FAISS-DB 一致性、连接池死锁、API 密钥泄露等）
+v2.2.0: 全面修复版（FAISS-DB 一致性、连接池死锁、API 密钥泄露等）
 """
 from __future__ import annotations
 

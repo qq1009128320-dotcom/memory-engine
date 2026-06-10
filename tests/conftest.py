@@ -47,7 +47,7 @@ def temp_db(monkeypatch, tmp_path):
         db_path.unlink(missing_ok=True)
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def cleanup_after_test(temp_db):
     """P2-8: 测试后清理测试数据，防止测试间相互影响。"""
     yield
