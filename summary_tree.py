@@ -11,6 +11,7 @@ import json
 import logging
 import sqlite3
 import sys
+import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -196,7 +197,6 @@ def build_summary_tree(rebuild: bool = False) -> dict:
             l0_summary = "[全局摘要生成中，请稍后查看]"
 
         # 存储 L0 摘要到数据库（作为一个特殊的 chunk）
-        import uuid, hashlib
         l0_id = str(uuid.uuid4())
         l0_hash = sha256(l0_summary)[:16]
         existing_l0 = conn.execute(
