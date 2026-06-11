@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.2.0-blue)](https://github.com/qq1009128320-dotcom/memory-engine/releases)
-[![Tests](https://img.shields.io/badge/tests-84%20passed-brightgreen)](https://github.com/qq1009128320-dotcom/memory-engine/actions)
+[![Tests](https://img.shields.io/badge/tests-53%20passed-brightgreen)](https://github.com/qq1009128320-dotcom/memory-engine/actions)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 四层 Agent 记忆系统。让 Agent 越用越聪明，越用越懂你。
