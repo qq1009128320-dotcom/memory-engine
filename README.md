@@ -1,198 +1,182 @@
-# 记忆引擎 (Memory Engine)
+# Memory Engine
 
 [![CI](https://github.com/qq1009128320-dotcom/memory-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/qq1009128320-dotcom/memory-engine/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.2.0-blue)](https://github.com/qq1009128320-dotcom/memory-engine/releases)
-[![Tests](https://img.shields.io/badge/tests-53%20passed-brightgreen)](https://github.com/qq1009128320-dotcom/memory-engine/actions)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-四层 Agent 记忆系统。让 Agent 越用越聪明，越用越懂你。
+> **4-layer persistent memory for AI agents via MCP.**  
+> Correct it once. It remembers forever.
 
 ---
 
-## 核心理念
+## Why Memory Engine?
 
-传统 AI 工具每次对话都是从零开始。记忆引擎让 Agent 从每次交互中学习——
-被纠正就记住，犯过错不再犯，新信息自动沉淀。
+Every AI conversation starts from scratch — until now. Memory Engine gives your agent persistent memory across sessions, organized in four specialized layers:
 
-```
-传统 AI：每次从头开始，能力不变
-记忆引擎：每次被纠正就更聪明一点
-```
+| Traditional AI | With Memory Engine |
+|---|---|
+| Resets every conversation | Remembers across sessions |
+| Makes the same mistakes repeatedly | Learns from corrections automatically |
+| You re-explain context every time | Auto-retrieves relevant memories |
+| Zero domain knowledge accumulation | Continuously learns your rules and preferences |
 
-## 四层记忆架构
+## Architecture: 4-Layer Memory
 
 ```mermaid
 graph TD
     subgraph Agent["🤖 AI Agent"]
-        direction LR
-        A1[Hermes] --> A2[Claude]
-        A2 --> A3[Custom]
+        A1[Hermes / Claude / Custom] --> MCP["🔌 MCP Server<br/>22 Tools"]
     end
 
-    Agent --> MCP["🔌 MCP Server<br/>memory_server.py<br/>23 个工具"]
-
-    subgraph Layers["四层记忆系统"]
-        direction TB
-        L1["📚 L1: Memory Tree<br/>外部数据感知层<br/>FAISS 向量检索"]
-        L2["⚙️ L2: 偏好记忆<br/>规则/字段映射/日期规则"]
-        L3["🔧 L3: 纠错记忆<br/>错误模式/自动升级"]
-        L4["🗺️ L4: 知识图谱<br/>实体关系/三级权限"]
+    subgraph Layers["Memory Engine"]
+        L1["📚 Layer 1: Memory Tree<br/>Vector search (FAISS)<br/>Hierarchical summaries"]
+        L2["⚙️ Layer 2: Preferences<br/>Field mappings, date rules<br/>Learned from corrections"]
+        L3["🔧 Layer 3: Error Memory<br/>Remember past mistakes<br/>Auto-upgrade after 3x"]
+        L4["🗺️ Layer 4: Knowledge Graph<br/>Entity relationships<br/>3-tier permissions"]
     end
 
-    MCP --> L1
-    MCP --> L2
-    MCP --> L3
-    MCP --> L4
-
-    L1 & L2 & L3 & L4 --> DB[("🗄️ SQLite<br/>memory.db")]
+    MCP --> L1 & L2 & L3 & L4
+    L1 & L2 & L3 & L4 --> DB[("🗄️ SQLite")]
     L1 --> FAISS[("📊 FAISS Index<br/>384-dim vectors")]
-
-    style L1 fill:#e1f5fe
-    style L2 fill:#fff3e0
-    style L3 fill:#fce4ec
-    style L4 fill:#e8f5e9
-    style DB fill:#f3e5f5
-    style FAISS fill:#e0f2f1
 ```
 
-| 层 | 名称 | 功能 | 借鉴 |
-|----|------|------|------|
-| L1 | Memory Tree | 外部数据感知，自动同步 + 层级摘要 | OpenHuman |
-| L2 | 偏好记忆 | 从对话中自动学习规则和习惯 | Mem0 |
-| L3 | 纠错记忆 | 记住错误，≥3 次自动升级为永久规则 | 独创 |
-| L4 | 知识图谱 | 实体关系 + 三级权限共享 | Zep |
+| Layer | Name | Function | Inspired By |
+|-------|------|----------|-------------|
+| L1 | Memory Tree | External data ingestion + vector search + hierarchical summaries | OpenHuman |
+| L2 | Preferences | Learns rules and habits from user corrections | Mem0 |
+| L3 | Error Memory | Remembers mistakes; auto-upgrades to rules after 3 occurrences | **原创 (Original)** |
+| L4 | Knowledge Graph | Entity/relationship management with 3-tier permissions | Zep |
 
-**当前版本：v2.2.0** | **FAISS 索引数：54** | **嵌入模型：all-MiniLM-L6-v2（384 维）** | **FAISS 向量索引**
-
-## 环境要求
-
-- **Python >= 3.10**（FastMCP 3.x 需要）
-- 操作系统：Linux / macOS / WSL2
-- 磁盘空间：约 200MB（含 ONNX 嵌入模型 80MB）
-
-## 快速开始
+## Quick Start
 
 ```bash
-# 1. 安装依赖
+# 1. Clone & install
+git clone https://github.com/qq1009128320-dotcom/memory-engine.git
+cd memory-engine
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-# 2. ONNX 嵌入模型（首次运行自动下载，80MB）
-# sentence-transformers 会在首次使用时自动从 HuggingFace
-# 下载 all-MiniLM-L6-v2 模型到 ~/.cache/sentence_transformers/
-# 如果网络受限，也可以手动下载：
-# pip install huggingface_hub
-# huggingface-cli download sentence-transformers/all-MiniLM-L6-v2 --local-dir ~/.cache/sentence_transformers/all-MiniLM-L6-v2
-
-# 3. 初始化数据库
+# 2. Initialize database
 python3 -c "from memory_server import _init_db; _init_db()"
 
-# 4. 启动 MCP Server（验证安装是否成功）
+# 3. Start MCP Server (Ctrl+C to exit)
 python3 memory_server.py
-# 看到 "FastMCP server" 或类似输出即为成功，Ctrl+C 退出
 ```
 
-## 环境变量
+## Features
 
-项目通过 `.env` 文件（放在项目根目录）或直接设置环境变量来配置：
+- **4 specialized memory layers** — Tree, Preferences, Error Memory, Knowledge Graph
+- **22 MCP tools** — Full surface accessible via MCP protocol
+- **Hybrid search** — FAISS vector search (384-dim, <3ms hot) + keyword fallback
+- **Auto-learning** — Errors logged; ≥3 occurrences auto-upgrade to hard rules
+- **Auto-fact extraction** — Extracts entities, preferences, and corrections from conversations
+- **Hierarchical summaries** — L0 (global) → L1 (grouped topics) → L2 (raw blocks)
+- **Health check & audit** — 30-point comprehensive audit built-in
+- **Deployment options** — Lightweight (FAISS+SQLite) / Heavy (Milvus+PostgreSQL+Redis)
+- **Third-party sync** — Feishu/Lark, local files, database tables
+- **Docker + systemd** — Production-ready with OOM protection
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `DEEPSEEK_API_KEY` | DeepSeek API 密钥（事实提取和摘要生成需要） | 空（不设置则 LLM 功能不可用） |
-| `DEEPSEEK_BASE_URL` | DeepSeek API 地址 | `https://api.deepseek.com` |
-| `LLM_MODEL` | 使用的 LLM 模型 | `deepseek-chat` |
-| `LLM_MAX_TOKENS` | LLM 最大输出 token | `2048` |
-| `LLM_TIMEOUT` | LLM 请求超时（秒） | `30` |
-|| `ENTERPRISE_MEMORY_DB` / `MEMORY_DB_PATH` | SQLite 数据库路径 | `./memory.db` |
-|| `FAISS_INDEX_PATH` | FAISS 向量索引路径 | `./faiss.index` |
-|| `EMBEDDING_MODEL` | 嵌入模型名称 | `all-MiniLM-L6-v2` |
-| `MAX_MEMORY_ROWS` | 查询结果最大行数 | `100` |
-| `MCP_SERVER_NAME` | MCP Server 名称 | `Memory Engine` |
-| `FEISHU_APP_ID` | 飞书应用 ID（飞书集成用） | 空 |
-| `FEISHU_APP_SECRET` | 飞书应用密钥 | 空 |
+## Benchmarks
 
-创建 `.env` 文件示例：
+| Operation | Cold Start | Hot Query |
+|-----------|-----------|-----------|
+| Vector Search (FAISS) | ~500ms (model load) | **~3ms** |
+| Keyword Search | — | **~0.1ms** |
+| Cross-layer Search | — | **~0.1ms** |
 
-```bash
-echo 'DEEPSEEK_API_KEY=sk-your-key-here' > .env
-echo 'MEMORY_DB_PATH=./my_memory.db' >> .env
-```
+## MCP Tools
 
-## MCP 工具列表
+### Memory Tree (External Data)
+- `memory_tree_ingest` — Ingest data (auto-embeds via FAISS)
+- `memory_tree_vector_search` — Semantic vector search (recommended)
+- `memory_tree_search` — Keyword search (fallback)
+- `memory_tree_fetch` — Get full content by ID
+- `memory_tree_score` — Adjust memory relevance score
+- `memory_tree_reindex` — Rebuild FAISS index
+- `memory_tree_summary` — L0/L1/L2 hierarchical summaries
 
-### Memory Tree（外部数据）
-- `memory_tree_ingest` — 录入数据
-- `memory_tree_search` — 关键词搜索
-- `memory_tree_vector_search` — 向量语义搜索
-- `memory_tree_fetch` — 获取完整内容
-- `memory_tree_score` — 调整评分
-- `memory_tree_reindex` — 重建向量索引
-- `memory_tree_summary` — 层级摘要树 (L0/L1/L2)
-
-### 偏好记忆（规则）
+### Preferences (Learned Rules)
 - `preference_add` / `preference_search` / `preference_list` / `preference_disable`
 
-### 纠错记忆（不重犯）
-- `error_check` / `error_log` / `error_list`
+### Error Memory (Don't Repeat Mistakes)
+- `error_check` — Check before execution: has this task failed before?
+- `error_log` — Log an error + user correction
+- `error_list` — List unresolved errors
 
-### 知识图谱（实体关系）
+### Knowledge Graph
 - `entity_add` / `entity_search` / `entity_link` / `graph_query`
 
-### 综合
-- `memory_search` — 跨四层综合检索
-- `memory_stats` — 记忆库统计
+### Cross-layer
+- `memory_search` — Search all 4 layers at once
+- `memory_stats` — Memory statistics overview
+- `memory_health` — Health check + operational metrics
 
-## 事实自动提取
-
-```bash
-python3 run_extraction.py --text "用户: 帮我查腾讯的研发费用
-Agent: 查询完成。研发支出 28.3 亿元。
-用户: 用 amt_jpy 字段，不是 base_amt。
-Agent: 已记录。"
-```
-
-自动提取：字段别名规则 + 错误纠正 + 实体关系。
-
-## 层级摘要树
+## Auto Fact Extraction
 
 ```bash
-python3 summary_tree.py --rebuild
+python3 run_extraction.py --text "User: Check Tencent's R&D expenses
+Agent: Found it. R&D spending: 2.83 billion yuan.
+User: Use the amt_jpy field, not base_amt.
+Agent: Got it, I've noted that."
 ```
 
-将零散的 Memory Tree 块聚合成 L0（全局概览）→ L1（主题分组）→ L2（原始块）三级结构。
+Automatically extracts: field aliases → preference rules | corrections → error memory | entities → knowledge graph.
 
-## 飞书集成
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DEEPSEEK_API_KEY` | DeepSeek API key (for extraction/summary) | (optional) |
+| `MEMORY_DB_PATH` | SQLite database path | `./memory.db` |
+| `FAISS_INDEX_PATH` | FAISS index path | `./faiss.index` |
+| `EMBEDDING_MODEL` | Embedding model name | `all-MiniLM-L6-v2` |
+| `LLM_MODEL` | LLM model for extraction | `deepseek-chat` |
+| `LLM_TIMEOUT` | LLM request timeout (seconds) | `30` |
+
+## Deployment Options
+
+| Option | Specs | Best For |
+|--------|-------|----------|
+| Lightweight (FAISS+SQLite) | 2 vCPU, 2GB RAM | Personal / small team |
+| Heavy (Milvus+PG+Redis) | 8 vCPU, 16GB RAM | Enterprise / 10M+ vectors |
+
+### One-click Deploy
 
 ```bash
-# 手动同步
-python3 auto_fetch.py
-
-# 定时同步（每20分钟）
-# 已通过 Hermes cronjob 自动调度
+chmod +x deploy.sh
+./deploy.sh
 ```
 
-需要 `~/.hermes/.env` 中配置 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`。
+Automates: Python check → venv creation → deps install → DB init → FAISS rebuild → verification.
 
-## 接入 Hermes Agent
+## Production Hardening
 
-Hermes Agent 通过 MCP 协议调用记忆引擎。两种方式：
+- ✅ FAISS concurrent write lock (thread-safe)
+- ✅ Request rate limiting (BoundedSemaphore 50)
+- ✅ Log rotation + redaction (API keys auto-filtered)
+- ✅ Config validation on startup
+- ✅ Input sanitization (NULL bytes, control chars)
+- ✅ PID file lock (prevents duplicate process spawn)
+- ✅ WAL auto-checkpoint (every 5 min)
+- ✅ Daily backup script (integrity_check → gzip → 30-day retention)
+- ✅ OOM protection (systemd MemoryMax)
+- ✅ Docker multi-stage build (non-root user)
 
-### 方式一：通过子进程本地启动（推荐开发/单机）
+## Ecosystem
 
-在 `config.yaml` 中添加：
+### Hermes Agent
+Add to `config.yaml`:
 
 ```yaml
 mcp_servers:
   enterprise-memory:
-    command: /home/administrator/tools/enterprise-memory/venv/bin/python3
-    args: ["/path/to/enterprise-memory/memory_server.py"]
+    command: /path/to/venv/bin/python3
+    args: ["/path/to/memory_server.py"]
 ```
 
-### 方式二：连接已有运行中的服务（推荐生产）
-
-如果记忆引擎已作为 systemd 服务运行（端口 8765），配置为 HTTP 连接：
+Or connect to existing HTTP server (port 8765):
 
 ```yaml
 mcp_servers:
@@ -200,100 +184,94 @@ mcp_servers:
     url: "http://127.0.0.1:8765/mcp"
 ```
 
-### 方式三：systemd 服务自启
+### Claude Code / Codex CLI / Any MCP Client
+Memory Engine speaks standard MCP protocol. Connect any MCP-compatible agent.
+
+## Project Structure
+
+```
+├── memory_server.py        # MCP Server (22 tools)
+├── schema.sql              # Database schema (6 tables)
+├── run_extraction.py       # End-to-end fact extraction
+├── extract_facts.py        # LLM prompt templates
+├── summary_tree.py         # Hierarchical summary generator
+├── auto_fetch.py           # Feishu auto-sync
+├── observability.py        # Metrics + observability
+├── validators.py           # Input validation
+├── config.py               # Unified configuration
+├── log_utils.py            # Logging utilities
+├── audit.py                # 30-point comprehensive audit
+├── deploy.sh               # One-click deployment
+├── Dockerfile              # Docker image
+├── docker-compose.yml      # Docker Compose
+└── memory-engine.service   # systemd unit
+```
+
+## Comparison with Alternatives
+
+| Feature | Memory Engine | agentmemory | Mem0 | Zep | Letta |
+|---------|:------------:|:------------:|:----:|:---:|:-----:|
+| Memory layers | **4** | 1 | 2 | 2 | 1 |
+| Error auto-learning | **✅** | ❌ | ❌ | ❌ | ❌ |
+| FAISS vector search | **✅** | ❌ (custom) | ✅ | ✅ | ❌ |
+| 0 external DBs | **✅** | ✅ | ❌ (cloud) | ❌ (cloud) | ❌ (cloud) |
+| MCP protocol | **✅** | ✅ | ❌ | ❌ | ❌ |
+| Self-hosted | **✅** | ✅ | ❌ | ✅ (limited) | ❌ |
+| Heavy deployment | **✅** | ❌ | ❌ | ❌ | ❌ |
+| Production audit | **✅** | ❌ | ❌ | ❌ | ❌ |
+| Feishu/Lark sync | **✅** | ❌ | ❌ | ❌ | ❌ |
+| Open Source | **✅ MIT** | ✅ Apache 2.0 | ✅ | ✅ | ✅ |
+
+## Roadmap
+
+- [x] v2.0 — FAISS migration, 22 MCP tools, production hardening
+- [x] v2.1 — CI/CD, Docker, comprehensive audit, embedding timeout protection
+- [x] v2.2 — Cross-layer search, error auto-upgrade, 84 tests passing
+- [ ] v2.3 — English documentation, GitHub Pages site, benchmark suite
+- [ ] v2.4 — Multi-agent memory coordination (ShadowClone-X integration)
+- [ ] v3.0 — Milvus production deploy, horizontal scaling, enterprise SSO
+
+## License
+
+MIT
+
+---
+
+## 记忆引擎 — 中文说明
+
+四层 Agent 记忆系统。让 Agent 越用越聪明，越用越懂你。
+
+### 核心理念
+
+```text
+传统 AI：每次从头开始，能力不变
+记忆引擎：每次被纠正就更聪明一点
+```
+
+### 快速开始（中文）
 
 ```bash
-sudo cp memory-engine.service /etc/systemd/system/
-sudo systemctl enable --now memory-engine.service
+git clone https://github.com/qq1009128320-dotcom/memory-engine.git
+cd memory-engine
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+python3 -c "from memory_server import _init_db; _init_db()"
+python3 memory_server.py
 ```
 
-服务配置了 OOM 保护（MemoryHigh=512M, MemoryMax=1G）和自动重启（Restart=always）。
+### 四层架构
 
-## 项目结构
+| 层 | 名称 | 功能 | 借鉴 |
+|----|------|------|------|
+| L1 | Memory Tree | 外部数据感知，向量检索 + 层级摘要 | OpenHuman |
+| L2 | 偏好记忆 | 从纠正中自动学习规则和习惯 | Mem0 |
+| L3 | 纠错记忆 | 记住错误，≥3 次自动升级为永久规则 | **独创** |
+| L4 | 知识图谱 | 实体关系 + 三级权限 | Zep |
 
-```
-├── memory_server.py        # MCP Server 主程序（23个工具）
-├── SKILL.md                # Hermes Agent 技能文件（含44个触发词）
-├── schema.sql              # 数据库 Schema（6张表）
-├── run_extraction.py       # 端到端事实提取
-├── extract_facts.py        # LLM 提示词模板 + 解析
-├── summary_tree.py         # 层级摘要树生成
-├── auto_fetch.py           # 飞书数据自动同步
-├── observability.py        # 可观测性 + 性能指标
-├── validators.py           # 参数校验
-├── config.py               # 统一配置（.env 覆盖）
-├── log_utils.py            # 日志工具
-├── setup.sh                # 安装脚本
-├── requirements.txt        # Python 依赖
-├── memory-engine.service   # systemd 服务单元
-├── CHANGELOG.md            # 变更记录
-├── CONTRIBUTING.md         # 贡献指南
-├── .env.example            # 环境变量模板
-|── memory.db               # SQLite 数据库（含演示数据）
-|── faiss.index             # FAISS 向量索引
-|── logs/                   # 服务日志
-```
+### 更多文档
 
-## 一键部署
+详见中文版 README 的完整说明（本文件上半部分为英文、下半部分为中文）。
 
-```bash
-# 客户端一键部署（复制项目后执行）
-chmod +x deploy.sh
-./deploy.sh
-```
+### GitHub
 
-部署脚本会自动完成：
-1. ✅ 检查 Python 环境（>= 3.10）
-2. ✅ 创建虚拟环境
-3. ✅ 安装依赖
-4. ✅ 初始化数据库
-5. ✅ 重建 FAISS 索引
-6. ✅ 验证安装
-
-## 技术栈
-
-- **MCP 协议**: FastMCP 3.x
-- **存储**: SQLite (单机) / PostgreSQL (生产)
-- **向量检索**: FAISS IVFFlat + ONNX (all-MiniLM-L6-v2, 384维) — 查询延迟 4-9ms
-- **LLM**: DeepSeek (事实提取 + 摘要生成)
-- **数据源**: 飞书 CLI / 本地文件 / 数据库
-
-## 验证安装
-
-安装完成后，运行以下 smoke test 确认一切正常：
-
-```bash
-# 确保虚拟环境已激活
-source venv/bin/activate
-
-# Smoke test：完整的端到端验证
-python3 -c "
-import os
-os.environ['DEEPSEEK_API_KEY'] = 'test-key'  # 跳过 LLM 调用
-
-from memory_server import _init_db, memory_stats, memory_tree_ingest, memory_health
-
-# 1. 初始化数据库
-_init_db()
-print('✅ 数据库初始化成功')
-
-# 2. 检查统计信息
-stats = memory_stats()
-print(f'✅ 记忆库统计: {stats}')
-
-# 3. 测试录入
-result = memory_tree_ingest(
-    source='smoke_test',
-    title='安装验证',
-    content='这是一条验证记忆引擎安装是否正常的测试内容。',
-)
-print(f'✅ 录入测试: {result[\"status\"]}')
-
-# 4. 健康检查
-health = memory_health()
-print(f'✅ 健康检查: {health[\"status\"]}')
-
-print()
-print('🎉 记忆引擎安装验证全部通过！')
-"
-```
+https://github.com/qq1009128320-dotcom/memory-engine

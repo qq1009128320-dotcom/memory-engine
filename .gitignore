@@ -1,8 +1,9 @@
 # Python
 __pycache__/
 
-# Embedding models (auto-downloaded on first run)
-models/all-MiniLM-L6-v2/
+# Embedding models (auto-downloaded on first run, keep only in .cache)
+models/
+!models/.gitkeep
 
 # Auto-fetch logs (runtime generated)
 auto_fetch.log
