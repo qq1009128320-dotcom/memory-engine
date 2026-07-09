@@ -1,0 +1,4 @@
+theme: jekyll-theme-cayman
+title: Memory Engine
+description: 4-Layer Persistent Memory for AI Agents via MCP
+show_downloads: true
