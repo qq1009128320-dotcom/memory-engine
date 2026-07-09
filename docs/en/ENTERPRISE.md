@@ -128,9 +128,8 @@ Grafana dashboards for real-time monitoring. Prometheus metrics. Elasticsearch a
 - [Architecture Overview](ARCHITECTURE.md)
 
 **Need enterprise?** Contact us:
-- Email: [your-email@example.com](mailto:your-email@example.com)
-- WeChat: [your-wechat-id]
-- Or open an issue tagged `enterprise` on GitHub
+- Email: [1009128320@qq.com](mailto:1009128320@qq.com)
+- Or open a [GitHub issue](https://github.com/qq1009128320-dotcom/memory-engine/issues/new) tagged `enterprise`
 
 ---
 
