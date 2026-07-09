@@ -7,6 +7,10 @@
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 > **4-layer persistent memory for AI agents via MCP.**  
+
+<p align="center">
+  <img src="assets/demo.gif" alt="Memory Engine Demo" width="650">
+</p>
 > Correct it once. It remembers forever.
 
 ---
