@@ -16,7 +16,7 @@ numpy>=1.26.0,<2.0                # 向量计算
 cachetools>=5.3.0,<5.4.0          # TTL 内存缓存
 
 # HuggingFace Hub（模型下载/缓存）
-huggingface-hub>=0.25.0,<0.26.0
+huggingface-hub>=1.23.0,<1.24.0
 
 # ONNX 运行时（嵌入模型推理）
 onnxruntime>=1.18,<2.0
