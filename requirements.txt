@@ -7,7 +7,7 @@
 fastmcp>=3.0.0,<3.1.0
 
 # SSE 传输（HTTP 服务器）
-uvicorn>=0.35.0,<0.36.0
+uvicorn>=0.51.0,<0.52.0
 
 # 向量存储 + 嵌入模型
 faiss-cpu>=1.7.4                  # FAISS 向量索引（CPU 版本）

@@ -25,7 +25,7 @@ dependencies = [
     # MCP protocol framework (FastMCP 3.x for SSE transport)
     "fastmcp>=3.0.0,<3.1.0",
     # HTTP server (SSE transport)
-    "uvicorn>=0.35.0,<0.36.0",
+    "uvicorn>=0.51.0,<0.52.0",
     # Vector search engine (CPU version, 4GB RAM for 500K vectors)
     "faiss-cpu>=1.7.4,<1.8.0",
     # Embedding model (all-MiniLM-L6-v2, 384-dim, ~80MB)
